@@ -86,8 +86,8 @@ function updateField(field: string, value: unknown) {
                 <p class="text-xs text-muted-foreground">QS bit</p>
               </div>
               <Switch
-                :checked="vcdb.quantizationRangeSelectable"
-                @update:checked="(v: boolean) => updateField('quantizationRangeSelectable', v)"
+                :model-value="vcdb.quantizationRangeSelectable"
+                @update:model-value="(v: boolean) => updateField('quantizationRangeSelectable', v)"
               />
             </label>
             <label :class="switchRowClass">
@@ -96,8 +96,8 @@ function updateField(field: string, value: unknown) {
                 <p class="text-xs text-muted-foreground">QY bit</p>
               </div>
               <Switch
-                :checked="vcdb.quantizationRangeYCC"
-                @update:checked="(v: boolean) => updateField('quantizationRangeYCC', v)"
+                :model-value="vcdb.quantizationRangeYCC"
+                @update:model-value="(v: boolean) => updateField('quantizationRangeYCC', v)"
               />
             </label>
           </div>
