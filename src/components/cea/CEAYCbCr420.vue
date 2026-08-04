@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { VIC_TABLE, getVICDefinition } from 'edidts'
+import { getVICDefinition } from 'edidts'
 import type { CEAExtensionBlock, VideoDataBlock, YCbCr420VideoDataBlock, YCbCr420CapabilityMapDataBlock } from 'edidts'
+import { groupAvailableVics, vicOptionLabel } from '@/lib/vicOptions'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
@@ -54,9 +55,7 @@ function addVic(vicNumber: number) {
   emit('update', 'ycbcr420Video.vics', updated)
 }
 
-const availableVics = computed(() =>
-  VIC_TABLE.filter(v => !vics.value.some(sv => sv.vic === v.vic)).slice(0, 50)
-)
+const vicGroups = computed(() => groupAvailableVics(vics.value.map(v => v.vic)))
 
 function hasBit(bitmap: Uint8Array, index: number): boolean {
   const byteIndex = Math.floor(index / 8)
@@ -124,9 +123,11 @@ function toggleBit(index: number, value: boolean) {
             }"
           >
             <option value="">Select VIC...</option>
-            <option v-for="vic in availableVics" :key="vic.vic" :value="vic.vic">
-              VIC {{ vic.vic }} — {{ vic.name }}
-            </option>
+            <optgroup v-for="group in vicGroups" :key="group.label" :label="group.label">
+              <option v-for="vic in group.vics" :key="vic.vic" :value="vic.vic">
+                {{ vicOptionLabel(vic) }}
+              </option>
+            </optgroup>
           </select>
         </div>
       </section>
