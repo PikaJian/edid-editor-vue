@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, triggerRef, computed, onMounted, type Ref } from 'vue'
 import { DetailedTimingDescriptor } from 'edidts'
-import type { EDID, DisplayDescriptor, ScreenSize, VideoInputDefinition, EstablishedTiming, StandardTiming, CEAExtensionBlock, VendorSpecificDataBlock } from 'edidts'
+import type { EDID, DisplayDescriptor, ScreenSize, VideoInputDefinition, EstablishedTiming, StandardTiming, CEAExtensionBlock, VendorSpecificDataBlock, CEADetailedTiming } from 'edidts'
 import type { EDIDViewModel } from '@/types/edid'
 import TopNav from '@/components/layout/TopNav.vue'
 import LeftNav from '@/components/layout/LeftNav.vue'
@@ -297,6 +297,57 @@ function removeVendorSubBlock(kind: 'hdmi' | 'hdmiForum') {
   syncEdid()
 }
 
+function addCEATiming() {
+  if (!edidRaw.value || !edidRaw.value.ceaExtension) return
+  const cea = edidRaw.value.ceaExtension
+  const timing: CEADetailedTiming = {
+    pixelClock: 0,
+    horizontalActive: 0,
+    horizontalBlanking: 0,
+    verticalActive: 0,
+    verticalBlanking: 0,
+    horizontalSyncOffset: 0,
+    horizontalSyncWidth: 0,
+    verticalSyncOffset: 0,
+    verticalSyncWidth: 0,
+    interlaced: false,
+    horizontalImageSize: 0,
+    verticalImageSize: 0,
+    horizontalBorder: 0,
+    verticalBorder: 0,
+    flags: {
+      interlaced: false,
+      stereoMode: 'none',
+      syncType: 'digital-separate',
+      vSyncPolarity: 'positive',
+      hSyncPolarity: 'positive',
+      serrationOnVSync: false,
+      syncOnAllChannels: false,
+      syncOnGreen: false,
+    },
+  }
+  cea.detailedTimings = [...cea.detailedTimings, timing]
+  activeSection.value = 'cea-timings'
+  syncEdid()
+}
+
+function removeCEATiming(index: number) {
+  if (!edidRaw.value || !edidRaw.value.ceaExtension) return
+  const cea = edidRaw.value.ceaExtension
+  cea.detailedTimings = cea.detailedTimings.filter((_, i) => i !== index)
+  syncEdid()
+}
+
+function updateCEATiming(index: number, timing: CEADetailedTiming) {
+  if (!edidRaw.value || !edidRaw.value.ceaExtension) return
+  const cea = edidRaw.value.ceaExtension
+  const timings = [...cea.detailedTimings]
+  if (index < 0 || index >= timings.length) return
+  timings[index] = timing
+  cea.detailedTimings = timings
+  syncEdid()
+}
+
 function removeCEADataBlock(blockTag: number, extendedTag?: number) {
   if (!edidRaw.value || !edidRaw.value.ceaExtension) return
   const cea = edidRaw.value.ceaExtension
@@ -427,7 +478,13 @@ function updateCEA(field: string, value: unknown) {
           />
           <CEAHDRColorimetry v-else-if="activeSection === 'cea-hdr-color' && ceaExtension" :cea="ceaExtension" />
           <CEAVideoCapability v-else-if="activeSection === 'cea-video-cap' && ceaExtension" :cea="ceaExtension" @update="updateCEA" />
-          <CEADetailedTimings v-else-if="activeSection === 'cea-timings' && ceaExtension" :cea="ceaExtension" />
+          <CEADetailedTimings
+            v-else-if="activeSection === 'cea-timings' && ceaExtension"
+            :cea="ceaExtension"
+            @add-timing="addCEATiming"
+            @remove-timing="removeCEATiming"
+            @update-timing="updateCEATiming"
+          />
         </div>
       </main>
       <section id="hex-viewer" class="h-full scroll-mt-24">
