@@ -45,8 +45,8 @@ const switchRowClass = 'flex items-center justify-between gap-2 rounded-md borde
               <p class="text-xs text-muted-foreground">Sink underscans IT Video Formats by default</p>
             </div>
             <Switch
-              :checked="cea.underscan"
-              @update:checked="(v: boolean) => emit('update', 'underscan', v)"
+              :model-value="cea.underscan"
+              @update:model-value="(v: boolean) => emit('update', 'underscan', v)"
             />
           </label>
           <label :class="switchRowClass">
@@ -55,8 +55,8 @@ const switchRowClass = 'flex items-center justify-between gap-2 rounded-md borde
               <p class="text-xs text-muted-foreground">Sink supports Basic Audio</p>
             </div>
             <Switch
-              :checked="cea.basicAudio"
-              @update:checked="(v: boolean) => emit('update', 'basicAudio', v)"
+              :model-value="cea.basicAudio"
+              @update:model-value="(v: boolean) => emit('update', 'basicAudio', v)"
             />
           </label>
           <label :class="switchRowClass">
@@ -65,8 +65,8 @@ const switchRowClass = 'flex items-center justify-between gap-2 rounded-md borde
               <p class="text-xs text-muted-foreground">Sink supports YCbCr 4:4:4 in addition to RGB</p>
             </div>
             <Switch
-              :checked="cea.ycbcr444"
-              @update:checked="(v: boolean) => emit('update', 'ycbcr444', v)"
+              :model-value="cea.ycbcr444"
+              @update:model-value="(v: boolean) => emit('update', 'ycbcr444', v)"
             />
           </label>
           <label :class="switchRowClass">
@@ -75,8 +75,8 @@ const switchRowClass = 'flex items-center justify-between gap-2 rounded-md borde
               <p class="text-xs text-muted-foreground">Sink supports YCbCr 4:2:2 in addition to RGB</p>
             </div>
             <Switch
-              :checked="cea.ycbcr422"
-              @update:checked="(v: boolean) => emit('update', 'ycbcr422', v)"
+              :model-value="cea.ycbcr422"
+              @update:model-value="(v: boolean) => emit('update', 'ycbcr422', v)"
             />
           </label>
         </div>

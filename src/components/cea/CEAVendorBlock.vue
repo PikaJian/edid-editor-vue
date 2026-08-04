@@ -130,23 +130,23 @@ function frlRateLabel(rate: number): string {
         <div class="grid grid-cols-2 gap-x-6 gap-y-1 mt-3">
           <label :class="rowClass">
             <span>AI Support</span>
-            <Switch :checked="hdmi.supportsAI" @update:checked="(v: boolean) => updateHdmiField('supportsAI', v)" />
+            <Switch :model-value="hdmi.supportsAI" @update:model-value="(v: boolean) => updateHdmiField('supportsAI', v)" />
           </label>
           <label :class="rowClass">
             <span>DC Y444</span>
-            <Switch :checked="hdmi.dcY444" @update:checked="(v: boolean) => updateHdmiField('dcY444', v)" />
+            <Switch :model-value="hdmi.dcY444" @update:model-value="(v: boolean) => updateHdmiField('dcY444', v)" />
           </label>
           <label :class="rowClass">
             <span>Deep Color 30-bit</span>
-            <Switch :checked="hdmi.dc30bit" @update:checked="(v: boolean) => updateHdmiField('dc30bit', v)" />
+            <Switch :model-value="hdmi.dc30bit" @update:model-value="(v: boolean) => updateHdmiField('dc30bit', v)" />
           </label>
           <label :class="rowClass">
             <span>Deep Color 36-bit</span>
-            <Switch :checked="hdmi.dc36bit" @update:checked="(v: boolean) => updateHdmiField('dc36bit', v)" />
+            <Switch :model-value="hdmi.dc36bit" @update:model-value="(v: boolean) => updateHdmiField('dc36bit', v)" />
           </label>
           <label :class="rowClass">
             <span>Deep Color 48-bit</span>
-            <Switch :checked="hdmi.dc48bit" @update:checked="(v: boolean) => updateHdmiField('dc48bit', v)" />
+            <Switch :model-value="hdmi.dc48bit" @update:model-value="(v: boolean) => updateHdmiField('dc48bit', v)" />
           </label>
         </div>
       </section>
@@ -189,7 +189,7 @@ function frlRateLabel(rate: number): string {
           </div>
           <label :class="rowClass">
             <span>SCDC Present</span>
-            <Switch :checked="forum.scdc" @update:checked="(v: boolean) => updateHdmiForumField('scdc', v)" />
+            <Switch :model-value="forum.scdc" @update:model-value="(v: boolean) => updateHdmiForumField('scdc', v)" />
           </label>
         </div>
 
@@ -197,31 +197,31 @@ function frlRateLabel(rate: number): string {
         <div class="grid grid-cols-3 gap-x-6 gap-y-1">
           <label :class="rowClass">
             <span>VRR</span>
-            <Switch :checked="forum.vrr" @update:checked="(v: boolean) => updateHdmiForumField('vrr', v)" />
+            <Switch :model-value="forum.vrr" @update:model-value="(v: boolean) => updateHdmiForumField('vrr', v)" />
           </label>
           <label :class="rowClass">
             <span>ALLM</span>
-            <Switch :checked="forum.allm" @update:checked="(v: boolean) => updateHdmiForumField('allm', v)" />
+            <Switch :model-value="forum.allm" @update:model-value="(v: boolean) => updateHdmiForumField('allm', v)" />
           </label>
           <label :class="rowClass">
             <span>DSC</span>
-            <Switch :checked="forum.dsc" @update:checked="(v: boolean) => updateHdmiForumField('dsc', v)" />
+            <Switch :model-value="forum.dsc" @update:model-value="(v: boolean) => updateHdmiForumField('dsc', v)" />
           </label>
           <label :class="rowClass">
             <span>CinemaVRR</span>
-            <Switch :checked="forum.cnmVrr" @update:checked="(v: boolean) => updateHdmiForumField('cnmVrr', v)" />
+            <Switch :model-value="forum.cnmVrr" @update:model-value="(v: boolean) => updateHdmiForumField('cnmVrr', v)" />
           </label>
           <label :class="rowClass">
             <span>FAPA</span>
-            <Switch :checked="forum.fapa" @update:checked="(v: boolean) => updateHdmiForumField('fapa', v)" />
+            <Switch :model-value="forum.fapa" @update:model-value="(v: boolean) => updateHdmiForumField('fapa', v)" />
           </label>
           <label :class="rowClass">
             <span>FVA</span>
-            <Switch :checked="forum.fva" @update:checked="(v: boolean) => updateHdmiForumField('fva', v)" />
+            <Switch :model-value="forum.fva" @update:model-value="(v: boolean) => updateHdmiForumField('fva', v)" />
           </label>
           <label :class="rowClass">
             <span>UHD 4K</span>
-            <Switch :checked="forum.uhd4k" @update:checked="(v: boolean) => updateHdmiForumField('uhd4k', v)" />
+            <Switch :model-value="forum.uhd4k" @update:model-value="(v: boolean) => updateHdmiForumField('uhd4k', v)" />
           </label>
         </div>
 
@@ -229,15 +229,15 @@ function frlRateLabel(rate: number): string {
         <div class="grid grid-cols-3 gap-x-6 gap-y-1">
           <label :class="rowClass">
             <span>30-bit</span>
-            <Switch :checked="forum.dc30bit420" @update:checked="(v: boolean) => updateHdmiForumField('dc30bit420', v)" />
+            <Switch :model-value="forum.dc30bit420" @update:model-value="(v: boolean) => updateHdmiForumField('dc30bit420', v)" />
           </label>
           <label :class="rowClass">
             <span>36-bit</span>
-            <Switch :checked="forum.dc36bit420" @update:checked="(v: boolean) => updateHdmiForumField('dc36bit420', v)" />
+            <Switch :model-value="forum.dc36bit420" @update:model-value="(v: boolean) => updateHdmiForumField('dc36bit420', v)" />
           </label>
           <label :class="rowClass">
             <span>48-bit</span>
-            <Switch :checked="forum.dc48bit420" @update:checked="(v: boolean) => updateHdmiForumField('dc48bit420', v)" />
+            <Switch :model-value="forum.dc48bit420" @update:model-value="(v: boolean) => updateHdmiForumField('dc48bit420', v)" />
           </label>
         </div>
       </section>
