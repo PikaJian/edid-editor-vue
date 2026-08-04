@@ -17,6 +17,7 @@ const emit = defineEmits<{
   (e: 'import-file', payload: File): void
   (e: 'load-hex', payload: string): void
   (e: 'new-edid'): void
+  (e: 'save-edid'): void
 }>()
 
 const fileInputRef = ref<HTMLInputElement | null>(null)
@@ -57,6 +58,11 @@ const fileActions = [
     label: 'Import from hex string',
     description: 'Paste raw hexadecimal data',
     handler: () => handleLoadHex(),
+  },
+  {
+    label: 'Export / Save As',
+    description: 'Save the current EDID as a binary file',
+    handler: () => emit('save-edid'),
   },
 ]
 </script>

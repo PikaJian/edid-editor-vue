@@ -23,6 +23,7 @@ import CEAHDRColorimetry from '@/components/cea/CEAHDRColorimetry.vue'
 import CEAVideoCapability from '@/components/cea/CEAVideoCapability.vue'
 import CEADetailedTimings from '@/components/cea/CEADetailedTimings.vue'
 import { useEDID } from '@/composables/useEDID'
+import { exportEdidFile } from '@/lib/exportEdid'
 
 const edidStore = useEDID()
 const edidRef = edidStore.edid as Ref<EDIDViewModel | null>
@@ -51,6 +52,11 @@ onMounted(() => {
 })
 
 const activeSection = ref('overview')
+
+function handleSaveEdid() {
+  if (!edidData.value) return
+  exportEdidFile(edidData.value, 'edid.bin')
+}
 
 function addTiming() {
   if (!edidRaw.value) return
@@ -307,6 +313,7 @@ function updateCEA(field: string, value: unknown) {
       @import-file="loadFromFile"
       @load-hex="loadFromHex"
       @new-edid="createBlankEdid"
+      @save-edid="handleSaveEdid"
     />
     <div class="flex flex-1 overflow-hidden">
       <LeftNav :edid="edidRef" v-model:active-section="activeSection" @add-cea="addCEAExtension" @remove-cea="removeCEAExtension" @add-cea-block="addCEADataBlock" @remove-cea-block="removeCEADataBlock" />

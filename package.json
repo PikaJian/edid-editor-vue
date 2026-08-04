@@ -12,12 +12,15 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "deploy": "bash deploy.sh"
+    "deploy": "bash deploy.sh",
+    "tauri": "tauri"
   },
   "dependencies": {
     "@lucide/vue": "^1.16.0",
     "@tailwindcss/vite": "^4.1.16",
     "@tanstack/vue-table": "^8.21.3",
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-dialog": "^2.7.2",
     "@vueuse/core": "^14.3.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -32,6 +35,7 @@
   "devDependencies": {
     "@iconify-json/radix-icons": "^1.2.5",
     "@iconify/vue": "^5.0.0",
+    "@tauri-apps/cli": "^2.11.4",
     "@types/node": "^25.9.1",
     "@vitejs/plugin-vue": "^6.0.1",
     "@vue/tsconfig": "^0.9.1",
