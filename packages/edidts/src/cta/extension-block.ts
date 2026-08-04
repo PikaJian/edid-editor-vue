@@ -614,7 +614,72 @@ export class ExtensionBlockParser {
   }
 
   private static encodeVendorSpecificDataBlock(block: VendorSpecificDataBlock): Uint8Array {
-    return block.data;
+    const oui = block.ieeeOui & 0xFFFFFF;
+    const ouiBytes = [oui & 0xFF, (oui >> 8) & 0xFF, (oui >> 16) & 0xFF];
+
+    if (block.ieeeOui === 0x000C03 && block.hdmi) {
+      const h = block.hdmi;
+      const physAddr =
+        ((h.sourcePhysicalAddress[0] & 0x0F) << 12) |
+        ((h.sourcePhysicalAddress[1] & 0x0F) << 8) |
+        ((h.sourcePhysicalAddress[2] & 0x0F) << 4) |
+        (h.sourcePhysicalAddress[3] & 0x0F);
+
+      let flagsByte = 0;
+      if (h.supportsAI) flagsByte |= 0x80;
+      if (h.dc48bit) flagsByte |= 0x40;
+      if (h.dc36bit) flagsByte |= 0x20;
+      if (h.dc30bit) flagsByte |= 0x10;
+      if (h.dcY444) flagsByte |= 0x08;
+
+      return new Uint8Array([
+        ...ouiBytes,
+        (physAddr >> 8) & 0xFF,
+        physAddr & 0xFF,
+        flagsByte,
+        Math.round(h.maxTmdsClockMHz / 5) & 0xFF,
+      ]);
+    }
+
+    if (block.ieeeOui === 0xC45DD8 && block.hdmiForum) {
+      const f = block.hdmiForum;
+
+      let byte6 = 0;
+      if (f.scdc) byte6 |= 0x80;
+      if (f.rr) byte6 |= 0x40;
+      if (f.lte340McscScramble) byte6 |= 0x08;
+      if (f.independentView) byte6 |= 0x04;
+      if (f.dualView) byte6 |= 0x02;
+      if (f.osd3d) byte6 |= 0x01;
+
+      let byte7 = (f.maxFrlRate & 0x0F) << 4;
+      if (f.dc30bit420) byte7 |= 0x01;
+      if (f.dc36bit420) byte7 |= 0x02;
+      if (f.dc48bit420) byte7 |= 0x04;
+      if (f.uhd4k) byte7 |= 0x08;
+
+      let byte8 = 0;
+      if (f.vrr) byte8 |= 0x40;
+      if (f.fapa) byte8 |= 0x04;
+      if (f.allm) byte8 |= 0x02;
+      if (f.fva) byte8 |= 0x01;
+
+      let byte9 = 0;
+      if (f.cnmVrr) byte9 |= 0x80;
+      if (f.dsc) byte9 |= 0x40;
+
+      return new Uint8Array([
+        ...ouiBytes,
+        f.version & 0xFF,
+        Math.round(f.maxTmdsCharacterRate / 5) & 0xFF,
+        byte6,
+        byte7,
+        byte8,
+        byte9,
+      ]);
+    }
+
+    return new Uint8Array([...ouiBytes, ...block.payload]);
   }
 
   private static encodeSpeakerAllocationBlock(block: SpeakerAllocationBlock): Uint8Array {
