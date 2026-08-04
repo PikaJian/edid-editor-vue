@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, triggerRef, computed, onMounted, type Ref } from 'vue'
 import { DetailedTimingDescriptor } from 'edidts'
-import type { EDID, DisplayDescriptor, ScreenSize, VideoInputDefinition, EstablishedTiming, StandardTiming, CEAExtensionBlock } from 'edidts'
+import type { EDID, DisplayDescriptor, ScreenSize, VideoInputDefinition, EstablishedTiming, StandardTiming, CEAExtensionBlock, VendorSpecificDataBlock } from 'edidts'
 import type { EDIDViewModel } from '@/types/edid'
 import TopNav from '@/components/layout/TopNav.vue'
 import LeftNav from '@/components/layout/LeftNav.vue'
@@ -256,7 +256,44 @@ function addCEADataBlock(blockType: string) {
       } as unknown as import('edidts').CEADataBlock)
       activeSection.value = 'cea-hdr-color'
       break
+    case 'hdmi-vsdb':
+      cea.dataBlocks.push({
+        tag: 0x03, data: empty,
+        ieeeOui: 0x000C03,
+        payload: new Uint8Array([0, 0, 0]),
+        hdmi: {
+          sourcePhysicalAddress: [0, 0, 0, 0],
+          supportsAI: false, dcY444: false, dc30bit: false, dc36bit: false, dc48bit: false,
+          maxTmdsClockMHz: 0,
+        },
+      } as unknown as import('edidts').CEADataBlock)
+      activeSection.value = 'cea-vendor'
+      break
+    case 'hdmi-forum-vsdb':
+      cea.dataBlocks.push({
+        tag: 0x03, data: empty,
+        ieeeOui: 0xC45DD8,
+        payload: new Uint8Array([1, 0, 0, 0, 0, 0]),
+        hdmiForum: {
+          version: 1, maxTmdsCharacterRate: 0, scdc: false, rr: false, lte340McscScramble: false,
+          independentView: false, dualView: false, osd3d: false, dc30bit420: false, dc36bit420: false,
+          dc48bit420: false, uhd4k: false, vrr: false, fapa: false, allm: false, fva: false,
+          cnmVrr: false, dsc: false, maxFrlRate: 0,
+        },
+      } as unknown as import('edidts').CEADataBlock)
+      activeSection.value = 'cea-vendor'
+      break
   }
+  syncEdid()
+}
+
+function removeVendorSubBlock(kind: 'hdmi' | 'hdmiForum') {
+  if (!edidRaw.value || !edidRaw.value.ceaExtension) return
+  const cea = edidRaw.value.ceaExtension
+  const targetOui = kind === 'hdmi' ? 0x000C03 : 0xC45DD8
+  cea.dataBlocks = cea.dataBlocks.filter(
+    b => !(b.tag === 0x03 && (b as VendorSpecificDataBlock).ieeeOui === targetOui)
+  )
   syncEdid()
 }
 
@@ -309,6 +346,22 @@ function updateCEA(field: string, value: unknown) {
     if (vcdb) {
       const key = field.slice('videoCapability.'.length)
       ;(vcdb as unknown as Record<string, unknown>)[key] = value
+    }
+  } else if (field.startsWith('hdmiVendor.')) {
+    const vsdb = cea.dataBlocks.find(
+      b => b.tag === 0x03 && (b as VendorSpecificDataBlock).ieeeOui === 0x000C03
+    ) as VendorSpecificDataBlock | undefined
+    if (vsdb?.hdmi) {
+      const key = field.slice('hdmiVendor.'.length)
+      ;(vsdb.hdmi as unknown as Record<string, unknown>)[key] = value
+    }
+  } else if (field.startsWith('hdmiForumVendor.')) {
+    const hf = cea.dataBlocks.find(
+      b => b.tag === 0x03 && (b as VendorSpecificDataBlock).ieeeOui === 0xC45DD8
+    ) as VendorSpecificDataBlock | undefined
+    if (hf?.hdmiForum) {
+      const key = field.slice('hdmiForumVendor.'.length)
+      ;(hf.hdmiForum as unknown as Record<string, unknown>)[key] = value
     }
   }
 
@@ -366,7 +419,12 @@ function updateCEA(field: string, value: unknown) {
           <CEAVideoBlock v-else-if="activeSection === 'cea-video' && ceaExtension" :cea="ceaExtension" @update="updateCEA" />
           <CEAAudioBlock v-else-if="activeSection === 'cea-audio' && ceaExtension" :cea="ceaExtension" @update="updateCEA" />
           <CEASpeakerBlock v-else-if="activeSection === 'cea-speakers' && ceaExtension" :cea="ceaExtension" @update="updateCEA" />
-          <CEAVendorBlock v-else-if="activeSection === 'cea-vendor' && ceaExtension" :cea="ceaExtension" />
+          <CEAVendorBlock
+            v-else-if="activeSection === 'cea-vendor' && ceaExtension"
+            :cea="ceaExtension"
+            @update="updateCEA"
+            @remove-sub="removeVendorSubBlock"
+          />
           <CEAHDRColorimetry v-else-if="activeSection === 'cea-hdr-color' && ceaExtension" :cea="ceaExtension" />
           <CEAVideoCapability v-else-if="activeSection === 'cea-video-cap' && ceaExtension" :cea="ceaExtension" @update="updateCEA" />
           <CEADetailedTimings v-else-if="activeSection === 'cea-timings' && ceaExtension" :cea="ceaExtension" />

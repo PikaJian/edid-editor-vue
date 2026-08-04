@@ -73,6 +73,10 @@ const addableBlocks = computed(() => {
     options.push({ type: 'colorimetry', label: 'Colorimetry' })
   if (!blocks.some(b => b.tag === 0x07 && (b as { extendedTag?: number }).extendedTag === 0x06))
     options.push({ type: 'hdr-static', label: 'HDR Static Metadata' })
+  if (!blocks.some(b => b.tag === 0x03 && (b as { ieeeOui?: number }).ieeeOui === 0x000C03))
+    options.push({ type: 'hdmi-vsdb', label: 'HDMI 1.4 VSDB' })
+  if (!blocks.some(b => b.tag === 0x03 && (b as { ieeeOui?: number }).ieeeOui === 0xC45DD8))
+    options.push({ type: 'hdmi-forum-vsdb', label: 'HDMI Forum VSDB (2.0/2.1)' })
   return options
 })
 
