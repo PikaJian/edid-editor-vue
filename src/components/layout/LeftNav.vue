@@ -43,14 +43,11 @@ const ceaChildren = computed(() => {
   if (blocks.some(b => b.tag === 0x01)) items.push({ id: 'cea-audio', label: 'Audio (SADs)' })
   if (blocks.some(b => b.tag === 0x04)) items.push({ id: 'cea-speakers', label: 'Speaker Allocation' })
   if (blocks.some(b => b.tag === 0x03)) items.push({ id: 'cea-vendor', label: 'HDMI / Vendor' })
-  const hasHdrOrColor = blocks.some(b =>
-    b.tag === 0x07 && ((b as { extendedTag?: number }).extendedTag === 0x05 ||
-    (b as { extendedTag?: number }).extendedTag === 0x06 ||
-    (b as { extendedTag?: number }).extendedTag === 0x07 ||
-    (b as { extendedTag?: number }).extendedTag === 0x0E ||
-    (b as { extendedTag?: number }).extendedTag === 0x0F)
-  )
-  if (hasHdrOrColor) items.push({ id: 'cea-hdr-color', label: 'HDR & Colorimetry' })
+  const hasExtTag = (tag: number) =>
+    blocks.some(b => b.tag === 0x07 && (b as { extendedTag?: number }).extendedTag === tag)
+  if (hasExtTag(0x05)) items.push({ id: 'cea-colorimetry', label: 'Colorimetry' })
+  if (hasExtTag(0x06) || hasExtTag(0x07)) items.push({ id: 'cea-hdr', label: 'HDR Metadata' })
+  if (hasExtTag(0x0E) || hasExtTag(0x0F)) items.push({ id: 'cea-ycbcr420', label: 'YCbCr 4:2:0' })
   const hasVideoCap = blocks.some(b =>
     b.tag === 0x07 && (b as { extendedTag?: number }).extendedTag === 0x00
   )
@@ -73,6 +70,8 @@ const addableBlocks = computed(() => {
     options.push({ type: 'colorimetry', label: 'Colorimetry' })
   if (!blocks.some(b => b.tag === 0x07 && (b as { extendedTag?: number }).extendedTag === 0x06))
     options.push({ type: 'hdr-static', label: 'HDR Static Metadata' })
+  if (!blocks.some(b => b.tag === 0x07 && (b as { extendedTag?: number }).extendedTag === 0x0E))
+    options.push({ type: 'ycbcr420-video', label: 'YCbCr 4:2:0 Video' })
   if (!blocks.some(b => b.tag === 0x03 && (b as { ieeeOui?: number }).ieeeOui === 0x000C03))
     options.push({ type: 'hdmi-vsdb', label: 'HDMI 1.4 VSDB' })
   if (!blocks.some(b => b.tag === 0x03 && (b as { ieeeOui?: number }).ieeeOui === 0xC45DD8))
@@ -163,7 +162,9 @@ function selectSection(id: string) {
                   child.id === 'cea-audio' ? emit('removeCeaBlock', 0x01) :
                   child.id === 'cea-speakers' ? emit('removeCeaBlock', 0x04) :
                   child.id === 'cea-vendor' ? emit('removeCeaBlock', 0x03) :
-                  child.id === 'cea-hdr-color' ? emit('removeCeaBlock', 0x07, 0x05) :
+                  child.id === 'cea-colorimetry' ? emit('removeCeaBlock', 0x07, 0x05) :
+                  child.id === 'cea-hdr' ? emit('removeCeaBlock', 0x07, 0x06) :
+                  child.id === 'cea-ycbcr420' ? emit('removeCeaBlock', 0x07, 0x0E) :
                   child.id === 'cea-video-cap' ? emit('removeCeaBlock', 0x07, 0x00) :
                   undefined
                 "

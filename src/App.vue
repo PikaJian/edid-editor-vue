@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { ref, triggerRef, computed, onMounted, type Ref } from 'vue'
 import { DetailedTimingDescriptor } from 'edidts'
-import type { EDID, DisplayDescriptor, ScreenSize, VideoInputDefinition, EstablishedTiming, StandardTiming, CEAExtensionBlock, VendorSpecificDataBlock, CEADetailedTiming } from 'edidts'
+import type {
+  EDID, DisplayDescriptor, ScreenSize, VideoInputDefinition, EstablishedTiming, StandardTiming,
+  CEAExtensionBlock, VendorSpecificDataBlock, CEADetailedTiming, ColorimetryDataBlock,
+  HDRStaticMetadataDataBlock, YCbCr420VideoDataBlock, YCbCr420CapabilityMapDataBlock, VideoDataBlock,
+} from 'edidts'
 import type { EDIDViewModel } from '@/types/edid'
 import TopNav from '@/components/layout/TopNav.vue'
 import LeftNav from '@/components/layout/LeftNav.vue'
@@ -19,7 +23,9 @@ import CEAVideoBlock from '@/components/cea/CEAVideoBlock.vue'
 import CEAAudioBlock from '@/components/cea/CEAAudioBlock.vue'
 import CEASpeakerBlock from '@/components/cea/CEASpeakerBlock.vue'
 import CEAVendorBlock from '@/components/cea/CEAVendorBlock.vue'
-import CEAHDRColorimetry from '@/components/cea/CEAHDRColorimetry.vue'
+import CEAColorimetry from '@/components/cea/CEAColorimetry.vue'
+import CEAHDRMetadata from '@/components/cea/CEAHDRMetadata.vue'
+import CEAYCbCr420 from '@/components/cea/CEAYCbCr420.vue'
 import CEAVideoCapability from '@/components/cea/CEAVideoCapability.vue'
 import CEADetailedTimings from '@/components/cea/CEADetailedTimings.vue'
 import { useEDID } from '@/composables/useEDID'
@@ -246,7 +252,7 @@ function addCEADataBlock(blockType: string) {
         xvYCC601: false, xvYCC709: false, sYCC601: false, opYCC601: false,
         opRGB: false, bt2020cYCC: false, bt2020YCC: false, bt2020RGB: false, dciP3: false,
       } as unknown as import('edidts').CEADataBlock)
-      activeSection.value = 'cea-hdr-color'
+      activeSection.value = 'cea-colorimetry'
       break
     case 'hdr-static':
       cea.dataBlocks.push({
@@ -254,7 +260,14 @@ function addCEADataBlock(blockType: string) {
         eotf: { traditionalGammaSDR: false, traditionalGammaHDR: false, smpte2084: false, hlg: false },
         staticMetadataType1: false,
       } as unknown as import('edidts').CEADataBlock)
-      activeSection.value = 'cea-hdr-color'
+      activeSection.value = 'cea-hdr'
+      break
+    case 'ycbcr420-video':
+      cea.dataBlocks.push({
+        tag: 0x07, extendedTag: 0x0E, data: empty,
+        vics: [],
+      } as unknown as import('edidts').CEADataBlock)
+      activeSection.value = 'cea-ycbcr420'
       break
     case 'hdmi-vsdb':
       cea.dataBlocks.push({
@@ -293,6 +306,27 @@ function removeVendorSubBlock(kind: 'hdmi' | 'hdmiForum') {
   const targetOui = kind === 'hdmi' ? 0x000C03 : 0xC45DD8
   cea.dataBlocks = cea.dataBlocks.filter(
     b => !(b.tag === 0x03 && (b as VendorSpecificDataBlock).ieeeOui === targetOui)
+  )
+  syncEdid()
+}
+
+function addYCbCr420CapabilityMap() {
+  if (!edidRaw.value || !edidRaw.value.ceaExtension) return
+  const cea = edidRaw.value.ceaExtension
+  const videoBlock = cea.dataBlocks.find(b => b.tag === 0x02) as VideoDataBlock | undefined
+  const byteCount = Math.max(1, Math.ceil((videoBlock?.vics.length ?? 0) / 8))
+  cea.dataBlocks.push({
+    tag: 0x07, extendedTag: 0x0F, data: new Uint8Array(0),
+    capabilityBitmap: new Uint8Array(byteCount),
+  } as unknown as import('edidts').CEADataBlock)
+  syncEdid()
+}
+
+function removeYCbCr420CapabilityMap() {
+  if (!edidRaw.value || !edidRaw.value.ceaExtension) return
+  const cea = edidRaw.value.ceaExtension
+  cea.dataBlocks = cea.dataBlocks.filter(
+    b => !(b.tag === 0x07 && (b as { extendedTag?: number }).extendedTag === 0x0F)
   )
   syncEdid()
 }
@@ -414,6 +448,38 @@ function updateCEA(field: string, value: unknown) {
       const key = field.slice('hdmiForumVendor.'.length)
       ;(hf.hdmiForum as unknown as Record<string, unknown>)[key] = value
     }
+  } else if (field.startsWith('colorimetry.')) {
+    const colorimetry = cea.dataBlocks.find(
+      b => b.tag === 0x07 && (b as { extendedTag?: number }).extendedTag === 0x05
+    ) as ColorimetryDataBlock | undefined
+    if (colorimetry) {
+      const key = field.slice('colorimetry.'.length)
+      ;(colorimetry as unknown as Record<string, unknown>)[key] = value
+    }
+  } else if (field.startsWith('hdrStatic.')) {
+    const hdrStatic = cea.dataBlocks.find(
+      b => b.tag === 0x07 && (b as { extendedTag?: number }).extendedTag === 0x06
+    ) as HDRStaticMetadataDataBlock | undefined
+    if (hdrStatic) {
+      const key = field.slice('hdrStatic.'.length)
+      ;(hdrStatic as unknown as Record<string, unknown>)[key] = value
+    }
+  } else if (field.startsWith('ycbcr420Video.')) {
+    const ycbcr420Video = cea.dataBlocks.find(
+      b => b.tag === 0x07 && (b as { extendedTag?: number }).extendedTag === 0x0E
+    ) as YCbCr420VideoDataBlock | undefined
+    if (ycbcr420Video) {
+      const key = field.slice('ycbcr420Video.'.length)
+      ;(ycbcr420Video as unknown as Record<string, unknown>)[key] = value
+    }
+  } else if (field.startsWith('ycbcr420Map.')) {
+    const ycbcr420Map = cea.dataBlocks.find(
+      b => b.tag === 0x07 && (b as { extendedTag?: number }).extendedTag === 0x0F
+    ) as YCbCr420CapabilityMapDataBlock | undefined
+    if (ycbcr420Map) {
+      const key = field.slice('ycbcr420Map.'.length)
+      ;(ycbcr420Map as unknown as Record<string, unknown>)[key] = value
+    }
   }
 
   syncEdid()
@@ -476,7 +542,15 @@ function updateCEA(field: string, value: unknown) {
             @update="updateCEA"
             @remove-sub="removeVendorSubBlock"
           />
-          <CEAHDRColorimetry v-else-if="activeSection === 'cea-hdr-color' && ceaExtension" :cea="ceaExtension" />
+          <CEAColorimetry v-else-if="activeSection === 'cea-colorimetry' && ceaExtension" :cea="ceaExtension" @update="updateCEA" />
+          <CEAHDRMetadata v-else-if="activeSection === 'cea-hdr' && ceaExtension" :cea="ceaExtension" @update="updateCEA" />
+          <CEAYCbCr420
+            v-else-if="activeSection === 'cea-ycbcr420' && ceaExtension"
+            :cea="ceaExtension"
+            @update="updateCEA"
+            @add-capability-map="addYCbCr420CapabilityMap"
+            @remove-capability-map="removeYCbCr420CapabilityMap"
+          />
           <CEAVideoCapability v-else-if="activeSection === 'cea-video-cap' && ceaExtension" :cea="ceaExtension" @update="updateCEA" />
           <CEADetailedTimings
             v-else-if="activeSection === 'cea-timings' && ceaExtension"
