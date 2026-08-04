@@ -72,6 +72,15 @@ function removeTiming(index: number) {
   syncEdid()
 }
 
+function updateTiming(index: number, timing: DetailedTimingDescriptor) {
+  if (!edidRaw.value) return
+  const timings = [...edidRaw.value.detailedTimings]
+  if (index < 0 || index >= timings.length) return
+  timings[index] = timing
+  edidRaw.value.detailedTimings = timings
+  syncEdid()
+}
+
 function createDefaultDescriptor(tag: number): DisplayDescriptor {
   switch (tag) {
     case 0xFC: return { tag: 0xFC, productName: '' }
@@ -345,6 +354,7 @@ function updateCEA(field: string, value: unknown) {
             :edid="edidRef!"
             @add-timing="addTiming"
             @remove-timing="removeTiming"
+            @update-timing="updateTiming"
             @add-descriptor="addDescriptor"
             @remove-descriptor="removeDescriptor"
             @update-descriptor="updateDescriptor"

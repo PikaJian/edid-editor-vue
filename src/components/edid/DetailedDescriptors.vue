@@ -11,6 +11,7 @@ import type {
 } from 'edidts'
 import type { EDIDViewModel } from '@/types/edid'
 import DisplayDescriptors from './DisplayDescriptors.vue'
+import DetailedTimingEditor from './descriptors/DetailedTimingEditor.vue'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 
@@ -21,6 +22,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   addTiming: []
   removeTiming: [index: number]
+  updateTiming: [index: number, timing: DetailedTimingDescriptor]
   addDescriptor: [tag: number]
   removeDescriptor: [index: number]
   updateDescriptor: [index: number, descriptor: DisplayDescriptor]
@@ -58,22 +60,6 @@ function isTimingExpanded(index: number): boolean {
 
 function scanTypeLabel(timing: DetailedTimingDescriptor): string {
   return timing.flags.interlaced ? 'Interlaced' : 'Progressive'
-}
-
-function horizontalFrontPorch(timing: DetailedTimingDescriptor): number {
-  return Math.max(0, timing.horizontalSyncOffset)
-}
-
-function horizontalBackPorch(timing: DetailedTimingDescriptor): number {
-  return Math.max(0, timing.horizontalBlanking - timing.horizontalSyncWidth - timing.horizontalSyncOffset)
-}
-
-function verticalFrontPorch(timing: DetailedTimingDescriptor): number {
-  return Math.max(0, timing.verticalSyncOffset)
-}
-
-function verticalBackPorch(timing: DetailedTimingDescriptor): number {
-  return Math.max(0, timing.verticalBlanking - timing.verticalSyncWidth - timing.verticalSyncOffset)
 }
 
 function getCVTComparisonRows(index: number): CVTComparisonResult[] {
@@ -183,30 +169,10 @@ function formatDifference(value: number, unit: 'MHz' | 'px' | 'lines' | 'Hz'): s
             v-if="isTimingExpanded(i)"
             class="border-t border-border/40 p-4 text-xs text-muted-foreground"
           >
-            <div class="grid gap-3 md:grid-cols-2">
-              <div class="rounded-lg border border-border/40 p-3">
-                <p class="text-[11px] uppercase tracking-wide mb-2">Horizontal</p>
-                <div class="space-y-1">
-                  <div class="flex justify-between"><span>Total</span><span class="font-mono text-foreground">{{ timing.horizontalTotal }} px</span></div>
-                  <div class="flex justify-between"><span>Active</span><span class="font-mono text-foreground">{{ timing.horizontalActive }} px</span></div>
-                  <div class="flex justify-between"><span>Blanking</span><span class="font-mono text-foreground">{{ timing.horizontalBlanking }} px</span></div>
-                  <div class="flex justify-between"><span>Front Porch</span><span class="font-mono text-foreground">{{ horizontalFrontPorch(timing) }} px</span></div>
-                  <div class="flex justify-between"><span>Sync Width</span><span class="font-mono text-foreground">{{ timing.horizontalSyncWidth }} px</span></div>
-                  <div class="flex justify-between"><span>Back Porch</span><span class="font-mono text-foreground">{{ horizontalBackPorch(timing) }} px</span></div>
-                </div>
-              </div>
-              <div class="rounded-lg border border-border/40 p-3">
-                <p class="text-[11px] uppercase tracking-wide mb-2">Vertical</p>
-                <div class="space-y-1">
-                  <div class="flex justify-between"><span>Total</span><span class="font-mono text-foreground">{{ timing.verticalTotal }} lines</span></div>
-                  <div class="flex justify-between"><span>Active</span><span class="font-mono text-foreground">{{ timing.verticalActive }} lines</span></div>
-                  <div class="flex justify-between"><span>Blanking</span><span class="font-mono text-foreground">{{ timing.verticalBlanking }} lines</span></div>
-                  <div class="flex justify-between"><span>Front Porch</span><span class="font-mono text-foreground">{{ verticalFrontPorch(timing) }} lines</span></div>
-                  <div class="flex justify-between"><span>Sync Width</span><span class="font-mono text-foreground">{{ timing.verticalSyncWidth }} lines</span></div>
-                  <div class="flex justify-between"><span>Back Porch</span><span class="font-mono text-foreground">{{ verticalBackPorch(timing) }} lines</span></div>
-                </div>
-              </div>
-            </div>
+            <DetailedTimingEditor
+              :timing="timing"
+              @update="(updated) => emit('updateTiming', i, updated)"
+            />
 
             <div class="mt-4 rounded-lg border border-border/40 p-3">
               <p class="text-[11px] uppercase tracking-wide mb-2">CTA-861 Reference</p>
