@@ -55,7 +55,7 @@ const ceaChildren = computed(() => {
     b.tag === 0x07 && (b as { extendedTag?: number }).extendedTag === 0x00
   )
   if (hasVideoCap) items.push({ id: 'cea-video-cap', label: 'Video Capability' })
-  if (cea.detailedTimings.length > 0) items.push({ id: 'cea-timings', label: 'Detailed Timings' })
+  items.push({ id: 'cea-timings', label: 'Detailed Timings' })
   return items
 })
 
@@ -138,7 +138,7 @@ function selectSection(id: string) {
         <!-- CEA children -->
         <div class="ml-3 border-l border-border pl-2 flex flex-col gap-0.5">
           <template v-for="child in ceaChildren" :key="child.id">
-            <div v-if="child.id === 'cea-header'" class="flex">
+            <div v-if="child.id === 'cea-header' || child.id === 'cea-timings'" class="flex">
               <button
                 class="px-2 py-1 rounded-md text-left w-full hover:bg-accent/50 transition-colors"
                 :class="activeSection === child.id ? 'bg-accent text-accent-foreground' : 'text-muted-foreground'"

@@ -1,10 +1,19 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { DetailedTimingDescriptor } from 'edidts'
 import type { CEAExtensionBlock, CEADetailedTiming } from 'edidts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import DetailedTimingEditor from '@/components/edid/descriptors/DetailedTimingEditor.vue'
 
 const props = defineProps<{
   cea: CEAExtensionBlock
+}>()
+
+const emit = defineEmits<{
+  addTiming: []
+  removeTiming: [index: number]
+  updateTiming: [index: number, timing: CEADetailedTiming]
 }>()
 
 const timings = computed(() => props.cea.detailedTimings)
@@ -24,12 +33,54 @@ function refreshRate(t: CEADetailedTiming): string {
   const rate = (t.pixelClock * 1_000_000) / (hTotal * vTotal)
   return rate.toFixed(2)
 }
+
+function toDescriptor(t: CEADetailedTiming): DetailedTimingDescriptor {
+  return new DetailedTimingDescriptor({
+    pixelClock: t.pixelClock,
+    horizontalActive: t.horizontalActive,
+    horizontalBlanking: t.horizontalBlanking,
+    verticalActive: t.verticalActive,
+    verticalBlanking: t.verticalBlanking,
+    horizontalSyncOffset: t.horizontalSyncOffset,
+    horizontalSyncWidth: t.horizontalSyncWidth,
+    verticalSyncOffset: t.verticalSyncOffset,
+    verticalSyncWidth: t.verticalSyncWidth,
+    horizontalImageSize: t.horizontalImageSize ?? 0,
+    verticalImageSize: t.verticalImageSize ?? 0,
+    horizontalBorder: t.horizontalBorder ?? 0,
+    verticalBorder: t.verticalBorder ?? 0,
+    flags: { ...t.flags, interlaced: t.interlaced },
+  })
+}
+
+function fromDescriptor(d: DetailedTimingDescriptor): CEADetailedTiming {
+  return {
+    pixelClock: d.pixelClock,
+    horizontalActive: d.horizontalActive,
+    horizontalBlanking: d.horizontalBlanking,
+    verticalActive: d.verticalActive,
+    verticalBlanking: d.verticalBlanking,
+    horizontalSyncOffset: d.horizontalSyncOffset,
+    horizontalSyncWidth: d.horizontalSyncWidth,
+    verticalSyncOffset: d.verticalSyncOffset,
+    verticalSyncWidth: d.verticalSyncWidth,
+    interlaced: d.flags.interlaced,
+    horizontalImageSize: d.horizontalImageSize,
+    verticalImageSize: d.verticalImageSize,
+    horizontalBorder: d.horizontalBorder,
+    verticalBorder: d.verticalBorder,
+    flags: { ...d.flags },
+  }
+}
 </script>
 
 <template>
   <Card>
-    <CardHeader>
+    <CardHeader class="flex flex-row items-center justify-between">
       <CardTitle>CEA Detailed Timings</CardTitle>
+      <Button variant="outline" size="sm" @click="emit('addTiming')">
+        Add Timing
+      </Button>
     </CardHeader>
     <CardContent class="space-y-4 text-sm">
       <div v-if="timings.length > 0" class="space-y-3">
@@ -58,6 +109,14 @@ function refreshRate(t: CEADetailedTiming): string {
               >
                 {{ expandedTimings.has(i) ? 'Hide details' : 'Show details' }}
               </button>
+              <Button
+                variant="ghost"
+                size="sm"
+                class="text-destructive hover:text-destructive hover:bg-destructive/10"
+                @click="emit('removeTiming', i)"
+              >
+                Remove
+              </Button>
             </div>
           </div>
 
@@ -65,26 +124,10 @@ function refreshRate(t: CEADetailedTiming): string {
             v-if="expandedTimings.has(i)"
             class="border-t border-border/40 p-4 text-xs text-muted-foreground"
           >
-            <div class="grid gap-3 md:grid-cols-2">
-              <div class="rounded-lg border border-border/40 p-3">
-                <p class="text-[11px] uppercase tracking-wide mb-2">Horizontal</p>
-                <div class="space-y-1">
-                  <div class="flex justify-between"><span>Active</span><span class="font-mono text-foreground">{{ timing.horizontalActive }} px</span></div>
-                  <div class="flex justify-between"><span>Blanking</span><span class="font-mono text-foreground">{{ timing.horizontalBlanking }} px</span></div>
-                  <div class="flex justify-between"><span>Sync Offset</span><span class="font-mono text-foreground">{{ timing.horizontalSyncOffset }} px</span></div>
-                  <div class="flex justify-between"><span>Sync Width</span><span class="font-mono text-foreground">{{ timing.horizontalSyncWidth }} px</span></div>
-                </div>
-              </div>
-              <div class="rounded-lg border border-border/40 p-3">
-                <p class="text-[11px] uppercase tracking-wide mb-2">Vertical</p>
-                <div class="space-y-1">
-                  <div class="flex justify-between"><span>Active</span><span class="font-mono text-foreground">{{ timing.verticalActive }} lines</span></div>
-                  <div class="flex justify-between"><span>Blanking</span><span class="font-mono text-foreground">{{ timing.verticalBlanking }} lines</span></div>
-                  <div class="flex justify-between"><span>Sync Offset</span><span class="font-mono text-foreground">{{ timing.verticalSyncOffset }} lines</span></div>
-                  <div class="flex justify-between"><span>Sync Width</span><span class="font-mono text-foreground">{{ timing.verticalSyncWidth }} lines</span></div>
-                </div>
-              </div>
-            </div>
+            <DetailedTimingEditor
+              :timing="toDescriptor(timing)"
+              @update="(updated) => emit('updateTiming', i, fromDescriptor(updated))"
+            />
           </div>
         </div>
       </div>
