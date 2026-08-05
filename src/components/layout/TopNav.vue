@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { Icon } from '@iconify/vue'
+import { canReadDisplays } from '@/lib/readDisplayEdid'
 import ModeToggle from '@/components/ModeToggle.vue'
 import { Separator } from '@/components/ui/separator'
 import {
@@ -18,6 +19,7 @@ const emit = defineEmits<{
   (e: 'load-hex', payload: string): void
   (e: 'new-edid'): void
   (e: 'save-edid'): void
+  (e: 'read-display'): void
 }>()
 
 const fileInputRef = ref<HTMLInputElement | null>(null)
@@ -43,7 +45,7 @@ const handleLoadHex = () => {
   emit('load-hex', hex)
 }
 
-const fileActions = [
+const fileActions = computed(() => [
   {
     label: 'New EDID',
     description: 'Start from a blank 128-byte block',
@@ -59,12 +61,20 @@ const fileActions = [
     description: 'Paste raw hexadecimal data',
     handler: () => handleLoadHex(),
   },
+  // Needs OS APIs, so it is only present in the desktop build.
+  ...(canReadDisplays()
+    ? [{
+        label: 'Read from connected display',
+        description: 'Load the EDID reported by an attached monitor',
+        handler: () => emit('read-display'),
+      }]
+    : []),
   {
     label: 'Export / Save As',
     description: 'Save the current EDID as a binary file',
     handler: () => emit('save-edid'),
   },
-]
+])
 </script>
 
 <template>

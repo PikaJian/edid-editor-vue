@@ -32,11 +32,13 @@ import CEADetailedTimings from '@/components/cea/CEADetailedTimings.vue'
 import { useEDID } from '@/composables/useEDID'
 import { exportEdidFile } from '@/lib/exportEdid'
 import { getSectionRanges } from '@/lib/byteRanges'
+import { readDisplayEdids, type DisplayEdid } from '@/lib/readDisplayEdid'
+import DisplayPickerDialog from '@/components/edid/DisplayPickerDialog.vue'
 
 const edidStore = useEDID()
 const edidRef = edidStore.edid as Ref<EDIDViewModel | null>
 const edidRaw = edidStore.edid as Ref<EDID | null>
-const { edidData, error, isLoaded, loadFromHex, loadFromFile, createBlankEdid } = edidStore
+const { edidData, error, isLoaded, loadFromHex, loadFromFile, loadFromBytes, createBlankEdid } = edidStore
 
 onMounted(() => {
   loadFromHex(
@@ -60,6 +62,34 @@ onMounted(() => {
 })
 
 const activeSection = ref('overview')
+
+const displayChoices = ref<DisplayEdid[]>([])
+const displayPickerOpen = ref(false)
+
+function selectDisplay(display: DisplayEdid) {
+  loadFromBytes(display.bytes)
+  activeSection.value = 'overview'
+}
+
+async function handleReadDisplay() {
+  try {
+    error.value = null
+    const displays = await readDisplayEdids()
+    if (displays.length === 0) {
+      error.value = 'No display EDID could be read from this machine.'
+      return
+    }
+    // Only worth asking which one when there is more than one.
+    if (displays.length === 1) {
+      selectDisplay(displays[0])
+      return
+    }
+    displayChoices.value = displays
+    displayPickerOpen.value = true
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  }
+}
 
 function handleSaveEdid() {
   if (!edidData.value) return
@@ -499,6 +529,12 @@ function updateCEA(field: string, value: unknown) {
       @load-hex="loadFromHex"
       @new-edid="createBlankEdid"
       @save-edid="handleSaveEdid"
+      @read-display="handleReadDisplay"
+    />
+    <DisplayPickerDialog
+      v-model:open="displayPickerOpen"
+      :displays="displayChoices"
+      @select="selectDisplay"
     />
     <div class="flex flex-1 overflow-hidden">
       <LeftNav :edid="edidRef" v-model:active-section="activeSection" @add-cea="addCEAExtension" @remove-cea="removeCEAExtension" @add-cea-block="addCEADataBlock" @remove-cea-block="removeCEADataBlock" @remove-vendor-sub="removeVendorSubBlock" />
