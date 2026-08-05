@@ -30,6 +30,7 @@ import CEAVideoCapability from '@/components/cea/CEAVideoCapability.vue'
 import CEADetailedTimings from '@/components/cea/CEADetailedTimings.vue'
 import { useEDID } from '@/composables/useEDID'
 import { exportEdidFile } from '@/lib/exportEdid'
+import { getSectionRanges } from '@/lib/byteRanges'
 
 const edidStore = useEDID()
 const edidRef = edidStore.edid as Ref<EDIDViewModel | null>
@@ -178,6 +179,8 @@ function updateTimings(field: string, value: unknown) {
 }
 
 const ceaExtension = computed(() => edidRef.value?.ceaExtension ?? null)
+
+const highlightedBytes = computed(() => getSectionRanges(activeSection.value, edidData.value))
 
 function addCEAExtension() {
   if (!edidRaw.value) return
@@ -562,7 +565,7 @@ function updateCEA(field: string, value: unknown) {
         </div>
       </main>
       <section id="hex-viewer" class="h-full scroll-mt-24">
-        <HexViewer :data="edidData" />
+        <HexViewer :data="edidData" :highlight="highlightedBytes" />
       </section>
     </div>
   </div>
