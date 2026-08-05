@@ -22,7 +22,8 @@ import CEAHeaderFlags from '@/components/cea/CEAHeaderFlags.vue'
 import CEAVideoBlock from '@/components/cea/CEAVideoBlock.vue'
 import CEAAudioBlock from '@/components/cea/CEAAudioBlock.vue'
 import CEASpeakerBlock from '@/components/cea/CEASpeakerBlock.vue'
-import CEAVendorBlock from '@/components/cea/CEAVendorBlock.vue'
+import CEAHdmiVsdb from '@/components/cea/CEAHdmiVsdb.vue'
+import CEAHdmiForumVsdb from '@/components/cea/CEAHdmiForumVsdb.vue'
 import CEAColorimetry from '@/components/cea/CEAColorimetry.vue'
 import CEAHDRMetadata from '@/components/cea/CEAHDRMetadata.vue'
 import CEAYCbCr420 from '@/components/cea/CEAYCbCr420.vue'
@@ -283,7 +284,7 @@ function addCEADataBlock(blockType: string) {
           maxTmdsClockMHz: 0,
         },
       } as unknown as import('edidts').CEADataBlock)
-      activeSection.value = 'cea-vendor'
+      activeSection.value = 'cea-vendor-hdmi'
       break
     case 'hdmi-forum-vsdb':
       cea.dataBlocks.push({
@@ -297,7 +298,7 @@ function addCEADataBlock(blockType: string) {
           cnmVrr: false, dsc: false, maxFrlRate: 0,
         },
       } as unknown as import('edidts').CEADataBlock)
-      activeSection.value = 'cea-vendor'
+      activeSection.value = 'cea-vendor-forum'
       break
   }
   syncEdid()
@@ -310,6 +311,8 @@ function removeVendorSubBlock(kind: 'hdmi' | 'hdmiForum') {
   cea.dataBlocks = cea.dataBlocks.filter(
     b => !(b.tag === 0x03 && (b as VendorSpecificDataBlock).ieeeOui === targetOui)
   )
+  // The section being viewed no longer exists — fall back to the CEA overview.
+  activeSection.value = 'cea-overview'
   syncEdid()
 }
 
@@ -498,7 +501,7 @@ function updateCEA(field: string, value: unknown) {
       @save-edid="handleSaveEdid"
     />
     <div class="flex flex-1 overflow-hidden">
-      <LeftNav :edid="edidRef" v-model:active-section="activeSection" @add-cea="addCEAExtension" @remove-cea="removeCEAExtension" @add-cea-block="addCEADataBlock" @remove-cea-block="removeCEADataBlock" />
+      <LeftNav :edid="edidRef" v-model:active-section="activeSection" @add-cea="addCEAExtension" @remove-cea="removeCEAExtension" @add-cea-block="addCEADataBlock" @remove-cea-block="removeCEADataBlock" @remove-vendor-sub="removeVendorSubBlock" />
       <main class="flex-1 p-4 overflow-auto">
         <div v-if="error" class="mb-4 p-4 bg-destructive/10 border border-destructive rounded-lg text-destructive">
           {{ error }}
@@ -539,11 +542,17 @@ function updateCEA(field: string, value: unknown) {
           <CEAVideoBlock v-else-if="activeSection === 'cea-video' && ceaExtension" :cea="ceaExtension" @update="updateCEA" />
           <CEAAudioBlock v-else-if="activeSection === 'cea-audio' && ceaExtension" :cea="ceaExtension" @update="updateCEA" />
           <CEASpeakerBlock v-else-if="activeSection === 'cea-speakers' && ceaExtension" :cea="ceaExtension" @update="updateCEA" />
-          <CEAVendorBlock
-            v-else-if="activeSection === 'cea-vendor' && ceaExtension"
+          <CEAHdmiVsdb
+            v-else-if="activeSection === 'cea-vendor-hdmi' && ceaExtension"
             :cea="ceaExtension"
             @update="updateCEA"
-            @remove-sub="removeVendorSubBlock"
+            @remove="removeVendorSubBlock('hdmi')"
+          />
+          <CEAHdmiForumVsdb
+            v-else-if="activeSection === 'cea-vendor-forum' && ceaExtension"
+            :cea="ceaExtension"
+            @update="updateCEA"
+            @remove="removeVendorSubBlock('hdmiForum')"
           />
           <CEAColorimetry v-else-if="activeSection === 'cea-colorimetry' && ceaExtension" :cea="ceaExtension" @update="updateCEA" />
           <CEAHDRMetadata v-else-if="activeSection === 'cea-hdr' && ceaExtension" :cea="ceaExtension" @update="updateCEA" />

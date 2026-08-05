@@ -39,6 +39,8 @@ function findCEABlockStart(data: Uint8Array): number {
 interface WalkedBlock {
   tag: number
   extendedTag?: number
+  /** For vendor-specific blocks (tag 3): the 24-bit IEEE OUI, stored little-endian. */
+  ieeeOui?: number
   range: ByteRange
 }
 
@@ -61,6 +63,11 @@ function walkCEADataBlocks(data: Uint8Array, ceaStart: number): WalkedBlock[] {
     blocks.push({
       tag,
       extendedTag: tag === 0x07 ? data[ceaStart + offset + 1] : undefined,
+      ieeeOui: tag === 0x03 && length >= 3
+        ? data[ceaStart + offset + 1] |
+          (data[ceaStart + offset + 2] << 8) |
+          (data[ceaStart + offset + 3] << 16)
+        : undefined,
       range: { start: ceaStart + offset, end: ceaStart + offset + 1 + length },
     })
     offset += 1 + length
@@ -89,7 +96,8 @@ function matchesSection(section: string, block: WalkedBlock): boolean {
     case 'cea-video': return block.tag === 0x02
     case 'cea-audio': return block.tag === 0x01
     case 'cea-speakers': return block.tag === 0x04
-    case 'cea-vendor': return block.tag === 0x03
+    case 'cea-vendor-hdmi': return block.tag === 0x03 && block.ieeeOui === 0x000C03
+    case 'cea-vendor-forum': return block.tag === 0x03 && block.ieeeOui === 0xC45DD8
     case 'cea-video-cap': return block.tag === 0x07 && block.extendedTag === 0x00
     case 'cea-colorimetry': return block.tag === 0x07 && block.extendedTag === 0x05
     case 'cea-hdr': return block.tag === 0x07 && (block.extendedTag === 0x06 || block.extendedTag === 0x07)
