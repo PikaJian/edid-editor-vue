@@ -20,6 +20,7 @@ const emit = defineEmits<{
   removeCea: []
   addCeaBlock: [blockType: string]
   removeCeaBlock: [blockTag: number, extendedTag?: number]
+  removeVendorSub: [kind: 'hdmi' | 'hdmiForum']
 }>()
 
 const edidChildren = [
@@ -42,7 +43,10 @@ const ceaChildren = computed(() => {
   if (blocks.some(b => b.tag === 0x02)) items.push({ id: 'cea-video', label: 'Video (SVDs)' })
   if (blocks.some(b => b.tag === 0x01)) items.push({ id: 'cea-audio', label: 'Audio (SADs)' })
   if (blocks.some(b => b.tag === 0x04)) items.push({ id: 'cea-speakers', label: 'Speaker Allocation' })
-  if (blocks.some(b => b.tag === 0x03)) items.push({ id: 'cea-vendor', label: 'HDMI / Vendor' })
+  const hasVsdb = (oui: number) =>
+    blocks.some(b => b.tag === 0x03 && (b as { ieeeOui?: number }).ieeeOui === oui)
+  if (hasVsdb(0x000C03)) items.push({ id: 'cea-vendor-hdmi', label: 'HDMI 1.4 VSDB' })
+  if (hasVsdb(0xC45DD8)) items.push({ id: 'cea-vendor-forum', label: 'HDMI Forum VSDB' })
   const hasExtTag = (tag: number) =>
     blocks.some(b => b.tag === 0x07 && (b as { extendedTag?: number }).extendedTag === tag)
   if (hasExtTag(0x05)) items.push({ id: 'cea-colorimetry', label: 'Colorimetry' })
@@ -161,7 +165,8 @@ function selectSection(id: string) {
                   child.id === 'cea-video' ? emit('removeCeaBlock', 0x02) :
                   child.id === 'cea-audio' ? emit('removeCeaBlock', 0x01) :
                   child.id === 'cea-speakers' ? emit('removeCeaBlock', 0x04) :
-                  child.id === 'cea-vendor' ? emit('removeCeaBlock', 0x03) :
+                  child.id === 'cea-vendor-hdmi' ? emit('removeVendorSub', 'hdmi') :
+                  child.id === 'cea-vendor-forum' ? emit('removeVendorSub', 'hdmiForum') :
                   child.id === 'cea-colorimetry' ? emit('removeCeaBlock', 0x07, 0x05) :
                   child.id === 'cea-hdr' ? emit('removeCeaBlock', 0x07, 0x06) :
                   child.id === 'cea-ycbcr420' ? emit('removeCeaBlock', 0x07, 0x0E) :
