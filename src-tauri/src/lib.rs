@@ -1,3 +1,5 @@
+mod display_edid;
+
 use std::io::Write;
 
 #[tauri::command]
@@ -22,7 +24,10 @@ pub fn run() {
     })
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_fs::init())
-    .invoke_handler(tauri::generate_handler![save_edid_file])
+    .invoke_handler(tauri::generate_handler![
+      save_edid_file,
+      display_edid::read_display_edids
+    ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }
