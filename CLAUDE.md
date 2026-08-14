@@ -15,6 +15,7 @@ The repo is an **npm workspace**. All EDID decode/encode logic lives in the fram
 - `npm test` / `npm run test:watch` — Vitest across both the app and the package.
 - `npm run tauri dev` / `npm run tauri build` — desktop app. A `pretauri` hook builds `edidts` first.
 - `cd src-tauri && cargo test --lib` — Rust unit tests. Add `-- --ignored --nocapture` for the test that reads real attached displays.
+- Pushing a `v*` tag builds the macOS and Windows desktop bundles in CI and attaches them to a **draft** GitHub release, which is then published by hand (`.github/workflows/release.yml`; the tag must match `version` in `src-tauri/tauri.conf.json` or the job fails up front). Run the workflow manually to build both platforms without releasing. See HANDOFF.md §7.
 
 ### Build `edidts` before anything that resolves it
 
@@ -104,4 +105,4 @@ Things about this format that have already caused bugs:
 - **TypeScript strictness differs by project.** `strict` is on everywhere, but `noUnusedLocals`/`noUnusedParameters` are **enabled in `packages/edidts` and disabled in the app** (`tsconfig.app.json`). Unused variables fail the package build, not the app build.
 - **Reactivity caveat:** the model is plain classes over `Uint8Array`, which Vue cannot deep-track. Mutations go through `App.vue`'s handlers, which reassign arrays/objects and then call `syncEdid()` → `edid.encode()` → `triggerRef`. Mutating a `Uint8Array` element in place will not re-render.
 - **Adding UI components:** only add shadcn-vue primitives via the CLI (`npx shadcn-vue@latest add <component>`). Never hand-write or hand-edit them. The CLI also tends to bump unrelated deps (`reka-ui`, `@vueuse/core`, `@lucide/vue`) as a side effect — revert that churn before committing rather than letting it ride along with a feature.
-- **Don't let tooling noise into commits.** Running `npm install` can rewrite `package-lock.json` with optional platform-specific dependency churn unrelated to your change; check `git diff` before staging.
+- **Don't let tooling noise into commits.** Running `npm install` can rewrite `package-lock.json` with optional platform-specific dependency churn unrelated to your change; check `git diff` before staging. The inverse also matters: CI installs with `npm ci`, which refuses a lock that is missing entries `package.json` implies, so **don't drop those optional platform-specific packages either** — local installs tolerate an incomplete lock and CI does not.
