@@ -30,4 +30,8 @@ export type EDIDViewModel = Pick<
     'extensionBlocks'
   |
     'ceaExtension'
+  |
+    'displayIdExtensions'
+  |
+    'extensionCountMismatch'
 >

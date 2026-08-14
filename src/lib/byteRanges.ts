@@ -36,6 +36,58 @@ function findCEABlockStart(data: Uint8Array): number {
   return -1
 }
 
+/** Offsets of every DisplayID (tag 0x70) extension block. */
+function findDisplayIDBlockStarts(data: Uint8Array): number[] {
+  const starts: number[] = []
+  for (let start = BLOCK_SIZE; start + BLOCK_SIZE <= data.length; start += BLOCK_SIZE) {
+    if (data[start] === 0x70) starts.push(start)
+  }
+  return starts
+}
+
+/**
+ * Walks the data blocks of one DisplayID section the way the decoder does:
+ * a 3-byte header (tag, revision/flags, payload length) then the payload.
+ *
+ * The section starts one byte into the extension block and its four header
+ * bytes precede the first data block (DisplayID v2.1a Section 2.1).
+ */
+function walkDisplayIDBlocks(data: Uint8Array, blockStart: number): WalkedBlock[] {
+  const SECTION_HEADER = 4
+  const blocks: WalkedBlock[] = []
+  const sectionStart = blockStart + 1
+  const bytesInSection = data[sectionStart + 1]
+  const payloadEnd = Math.min(sectionStart + SECTION_HEADER + bytesInSection, blockStart + BLOCK_SIZE - 1)
+
+  let offset = sectionStart + SECTION_HEADER
+  while (offset + 3 <= payloadEnd) {
+    const tag = data[offset]
+    if (tag === 0x00) break // fill bytes run to the checksum
+
+    const payloadLength = data[offset + 2]
+    const end = offset + 3 + payloadLength
+    if (end > payloadEnd) break
+
+    blocks.push({ tag, range: { start: offset, end } })
+    offset = end
+  }
+  return blocks
+}
+
+/** Which DisplayID data block tags each UI section covers. */
+const DISPLAY_ID_SECTION_TAGS: Record<string, number[]> = {
+  'did-product': [0x20],
+  'did-params': [0x21],
+  // 0x03 is the DisplayID v1.x Type I detailed timing block.
+  'did-timings': [0x03, 0x22, 0x23, 0x24, 0x2a],
+  'did-interface': [0x26],
+  'did-adaptive-sync': [0x2b, 0x25],
+  'did-tiled': [0x28],
+}
+
+/** Tags that have their own section above; everything else lands in "Other Blocks". */
+const DISPLAY_ID_COVERED_TAGS = Object.values(DISPLAY_ID_SECTION_TAGS).flat()
+
 interface WalkedBlock {
   tag: number
   extendedTag?: number
@@ -111,6 +163,21 @@ export function getSectionRanges(section: string, data: Uint8Array | null | unde
 
   const base = BASE_RANGES[section]
   if (base) return base.filter(r => r.start < data.length)
+
+  if (section.startsWith('did-')) {
+    const starts = findDisplayIDBlockStarts(data)
+    if (starts.length === 0) return []
+
+    if (section === 'did-overview') {
+      return starts.map(start => ({ start, end: Math.min(start + BLOCK_SIZE, data.length) }))
+    }
+
+    const tags = DISPLAY_ID_SECTION_TAGS[section]
+    return starts
+      .flatMap(start => walkDisplayIDBlocks(data, start))
+      .filter(block => (tags ? tags.includes(block.tag) : !DISPLAY_ID_COVERED_TAGS.includes(block.tag)))
+      .map(block => block.range)
+  }
 
   if (!section.startsWith('cea-')) return []
 
