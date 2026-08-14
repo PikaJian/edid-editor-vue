@@ -23,8 +23,16 @@ import {
   type VideoTimingBlockDetailedTiming as VTBDetailedTiming,
 } from '../common/video-timing-block';
 import { checksum8 } from '../common/checksum';
+import {
+  decodeDisplayIdSection,
+  encodeDisplayIdSection,
+  type DisplayIdSection,
+} from '../displayid';
 
 export type { VTBExtensionBlock, VTBDetailedTiming };
+
+/** Bytes 1 through 126 of a DisplayID EDID Extension Block (v2.1a Section 2.1). */
+const DISPLAY_ID_EDID_SECTION_LENGTH = 126;
 
 export type ExtensionTag = 
   | 0x02  // CEA-861 Extension
@@ -32,6 +40,7 @@ export type ExtensionTag =
   | 0x40  // Display Information Extension
   | 0x50  // Localized String Extension
   | 0x60  // Digital Packet Video Link Extension
+  | 0x70  // DisplayID Extension
   | 0xF0  // Extension Block Map
   | 0xFF  // Manufacturer Defined
   | number;
@@ -196,10 +205,26 @@ export interface BlockMapExtension extends BaseExtensionBlock {
   blockTags: number[]; // Up to 126 extension block tags
 }
 
-export type ExtensionBlock = 
-  | CEAExtensionBlock 
-  | VTBExtensionBlock 
-  | BlockMapExtension 
+/**
+ * DisplayID Extension Block (Tag 0x70)
+ *
+ * Per DisplayID v2.1a Section 2.1, the 128 bytes are the 0x70 tag, a 126-byte
+ * fixed-length DisplayID Section, and the EDID extension checksum. The
+ * DisplayID Section carries its own checksum, so the two are validated
+ * independently.
+ */
+export interface DisplayIDExtensionBlock extends BaseExtensionBlock {
+  tag: 0x70;
+  section: DisplayIdSection | null;
+  /** Why the section failed to parse, when `section` is null. */
+  sectionError: string | null;
+}
+
+export type ExtensionBlock =
+  | CEAExtensionBlock
+  | VTBExtensionBlock
+  | BlockMapExtension
+  | DisplayIDExtensionBlock
   | BaseExtensionBlock;
 
 export class ExtensionBlockParser {
@@ -225,6 +250,8 @@ export class ExtensionBlockParser {
         return this.decodeCEA(data, base);
       case 0x10:
         return this.decodeVTB(data, base);
+      case 0x70:
+        return this.decodeDisplayID(data, base);
       case 0xF0:
         return this.decodeBlockMap(data, base);
       default:
@@ -246,6 +273,9 @@ export class ExtensionBlockParser {
         break;
       case 0x10:
         bytes.set(encodeVideoTimingBlock(block as VTBExtensionBlock).slice(2, 127), 2);
+        break;
+      case 0x70:
+        this.encodeDisplayID(bytes, block as DisplayIDExtensionBlock);
         break;
       case 0xF0:
         this.encodeBlockMap(bytes, block as BlockMapExtension);
@@ -519,6 +549,44 @@ export class ExtensionBlockParser {
 
   private static decodeVTB(data: Uint8Array, base: BaseExtensionBlock): VTBExtensionBlock {
     return decodeVideoTimingBlock(data, base);
+  }
+
+  /**
+   * The DisplayID Section occupies bytes 1 through 126, between the extension
+   * tag and the EDID checksum (DisplayID v2.1a Section 2.1).
+   *
+   * A section that fails to parse is reported rather than thrown, so one bad
+   * DisplayID extension cannot make the whole EDID unreadable.
+   */
+  private static decodeDisplayID(data: Uint8Array, base: BaseExtensionBlock): DisplayIDExtensionBlock {
+    try {
+      return {
+        ...base,
+        tag: 0x70,
+        section: decodeDisplayIdSection(data.slice(1, 127)),
+        sectionError: null,
+      };
+    } catch (error) {
+      return {
+        ...base,
+        tag: 0x70,
+        section: null,
+        sectionError: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  private static encodeDisplayID(bytes: Uint8Array, block: DisplayIDExtensionBlock): void {
+    // Without a parsed section the original 125 payload bytes are all we have,
+    // and `data` starts at byte 2, so byte 1 has to be restored separately.
+    if (!block.section) {
+      bytes[1] = block.revision;
+      bytes.set(block.data.slice(0, 125), 2);
+      return;
+    }
+
+    const encoded = encodeDisplayIdSection(block.section, DISPLAY_ID_EDID_SECTION_LENGTH);
+    bytes.set(encoded.slice(0, DISPLAY_ID_EDID_SECTION_LENGTH), 1);
   }
 
   private static decodeBlockMap(data: Uint8Array, base: BaseExtensionBlock): BlockMapExtension {

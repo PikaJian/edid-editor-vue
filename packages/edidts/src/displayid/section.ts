@@ -5,7 +5,9 @@ import { DisplayIdDecodeError, type DisplayIdSection } from './types';
 const HEADER_LENGTH = 4;
 const CHECKSUM_LENGTH = 1;
 const MIN_SECTION_LENGTH = HEADER_LENGTH + CHECKSUM_LENGTH;
-const DISPLAY_ID_2_0_VERSION_BYTE = 0x20;
+/** Byte 00h[7:4] holds the structure version (Tables 2-3 and 2-4). */
+const DISPLAY_ID_STRUCTURE_VERSION_1 = 1;
+const DISPLAY_ID_STRUCTURE_VERSION_2 = 2;
 
 export function decodeDisplayIdSection(data: Uint8Array): DisplayIdSection {
   if (data.length < MIN_SECTION_LENGTH) {
@@ -27,13 +29,30 @@ export function decodeDisplayIdSection(data: Uint8Array): DisplayIdSection {
   const sectionBytes = data.slice(0, totalLength);
   const isChecksumValid = isChecksum8Valid(sectionBytes);
 
-  if (versionByte !== DISPLAY_ID_2_0_VERSION_BYTE) {
+  // Only the version nibble is checked. The DisplayID *document* revision (2.1,
+  // 2.1a) advances independently of the structure revision in byte 00h[3:0],
+  // and blocks carry their own revision, so rejecting a nonzero structure
+  // revision here would drop otherwise-parseable sections.
+  //
+  // v1.x sections are accepted as well: monitors still expose DisplayID v1.2 as
+  // an EDID extension, sometimes as the only DisplayID section present. They
+  // share this framing and differ in the data block tag space.
+  const structureVersion = versionByte >> 4;
+  if (
+    structureVersion !== DISPLAY_ID_STRUCTURE_VERSION_1 &&
+    structureVersion !== DISPLAY_ID_STRUCTURE_VERSION_2
+  ) {
     throw new DisplayIdDecodeError(
-      `DisplayID section version byte 0x${versionByte.toString(16).padStart(2, '0')} is not v2.0`,
+      `DisplayID section version byte 0x${versionByte.toString(16).padStart(2, '0')} is not a v1.x or v2.x structure`,
     );
   }
 
-  const decodedBlocks = decodeDisplayIdBlocks(sectionBytes, HEADER_LENGTH, totalLength - CHECKSUM_LENGTH);
+  const decodedBlocks = decodeDisplayIdBlocks(
+    sectionBytes,
+    HEADER_LENGTH,
+    totalLength - CHECKSUM_LENGTH,
+    structureVersion,
+  );
 
   return {
     version: versionByte >> 4,
@@ -50,10 +69,17 @@ export function decodeDisplayIdSection(data: Uint8Array): DisplayIdSection {
   };
 }
 
-export function encodeDisplayIdSection(section: DisplayIdSection): Uint8Array {
+/**
+ * @param minimumLength Pads the section with fill bytes so it is at least this
+ *   many bytes long. EDID Extension Sections are a fixed 126 bytes (v2.1a
+ *   Section 2.1); a section whose blocks already exceed the target keeps its
+ *   natural length rather than silently dropping a block.
+ */
+export function encodeDisplayIdSection(section: DisplayIdSection, minimumLength = 0): Uint8Array {
   const encodedBlocks = section.blocks.map(encodeDisplayIdBlock);
   const blockLength = encodedBlocks.reduce((length, block) => length + block.length, 0);
-  const fillBytes = section.fillBytes;
+  const minimumFill = minimumLength - HEADER_LENGTH - CHECKSUM_LENGTH - blockLength;
+  const fillBytes = Math.max(section.fillBytes, minimumFill, 0);
   const bytesInSection = blockLength + fillBytes;
   const totalLength = bytesInSection + HEADER_LENGTH + CHECKSUM_LENGTH;
   const encoded = new Uint8Array(totalLength);

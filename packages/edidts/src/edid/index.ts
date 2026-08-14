@@ -14,7 +14,7 @@ import {
   getProductSerial,
   getRangeLimits,
 } from "./display-descriptor";
-import { ExtensionBlock, ExtensionBlockParser, CEAExtensionBlock } from "../cta/extension-block";
+import { ExtensionBlock, ExtensionBlockParser, CEAExtensionBlock, DisplayIDExtensionBlock } from "../cta/extension-block";
 
 
 /**
@@ -62,6 +62,12 @@ export class EDID {
   public extensions: number = 0;
   public checksum: number = 0;
   public isValid: boolean = false;
+  /**
+   * True when byte 126 disagrees with the number of extension blocks actually
+   * present. The blocks that are present are still decoded; re-encoding writes
+   * the corrected count.
+   */
+  public extensionCountMismatch: boolean = false;
 
   // Reactive getters and setters
   get header(): EDIDHeader { return this._header; }
@@ -316,15 +322,23 @@ export class EDID {
       this.checksum = bytes[127];
       this.isValid = isChecksum8Valid(bytes.slice(0, 128));
 
-      // Decode extension blocks
+      // Decode extension blocks.
+      //
+      // Every complete 128-byte block present is decoded, rather than only the
+      // number byte 126 declares. Real EDIDs are shipped with a stale extension
+      // count (a monitor that appends a DisplayID block without updating the
+      // base block, for example), and trusting the count silently hides blocks
+      // that are present and carry a valid checksum.
       this._extensionBlocks = [];
-      for (let i = 0; i < this.extensions && (i + 1) * 128 + 128 <= bytes.length; i++) {
+      const availableBlocks = Math.floor(bytes.length / 128) - 1;
+      for (let i = 0; i < availableBlocks; i++) {
         const extData = bytes.slice((i + 1) * 128, (i + 2) * 128);
         const extBlock = ExtensionBlockParser.decode(extData);
         if (extBlock) {
           this._extensionBlocks.push(extBlock);
         }
       }
+      this.extensionCountMismatch = this.extensions !== this._extensionBlocks.length;
 
       // Store the raw data
       this._rawData = new Uint8Array(bytes);
@@ -520,6 +534,17 @@ export class EDID {
   }
 
   /**
+   * Get every DisplayID extension block (tag 0x70).
+   *
+   * An EDID may carry more than one, and DisplayID v2.1a Section 2.1 allows
+   * v1.2 and v2.x sections to coexist, so this returns a list rather than a
+   * single block.
+   */
+  get displayIdExtensions(): DisplayIDExtensionBlock[] {
+    return this.extensionBlocks.filter(b => b.tag === 0x70) as DisplayIDExtensionBlock[];
+  }
+
+  /**
    * Check if HDMI is supported (via CEA extension)
    */
   get isHDMI(): boolean {
@@ -632,6 +657,7 @@ export type {
   CEADetailedTiming,
   VTBExtensionBlock,
   BlockMapExtension,
+  DisplayIDExtensionBlock,
 } from "../cta/extension-block";
 
 // Re-export CTA-861 types and functions
