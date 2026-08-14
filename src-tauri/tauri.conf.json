@@ -1,6 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "EDID Editor",
+  "mainBinaryName": "EDID Editor",
   "version": "0.1.0",
   "identifier": "com.pikajian.edid-editor-vue",
   "build": {
