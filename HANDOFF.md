@@ -200,6 +200,8 @@ git tag -a v0.1.0 -m "..."
 git push origin v0.1.0
 ```
 
+**Write the tag message as if it were the release notes, because it is.** The body of the annotated tag message becomes the release summary, followed by a generated `### Changes` list (`git log --no-merges` over the range since the previous tag, so the conventional-commit subjects carry it), a compare link, and `.github/release-notes-footer.md` for the download/unsigned boilerplate. This is why checkout uses `fetch-depth: 0` — a shallow clone has neither the range nor the tag object. A lightweight tag still works, it just contributes no summary.
+
 Both runners build, then attach their bundles to a **draft** release. Publish it by hand (`gh release edit vX.Y.Z --draft=false`, plus `-R`). Draft is deliberate: the two jobs finish minutes apart, and a published release would be visible while still half-empty. `releaseDraft: false` in the workflow makes it automatic if that trade is ever worth making.
 
 `workflow_dispatch` (Actions → Release → Run workflow) builds both platforms **without** creating a release — `tagName` resolves to an empty string on a non-tag ref, which tauri-action treats as build-only — and uploads the bundles as workflow artifacts instead. Use this to check a build before committing to a tag.
