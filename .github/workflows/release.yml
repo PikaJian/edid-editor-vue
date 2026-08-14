@@ -65,12 +65,20 @@ jobs:
         shell: bash
         run: |
           tag="$GITHUB_REF_NAME"
+          # actions/checkout resolves the ref to a commit SHA and recreates the tag
+          # locally as a lightweight ref, which drops the annotation. Refetch the
+          # real tag object, or the message below is silently the commit's instead.
+          git fetch --force --no-tags origin "refs/tags/$tag:refs/tags/$tag"
           # Nearest tag reachable before this one; empty for the first release.
           previous=$(git describe --tags --abbrev=0 "$tag^" 2>/dev/null || true)
           {
             echo 'body<<RELEASE_NOTES_EOF'
             # Body of the annotated tag message — the human summary of the release.
-            git tag -l --format='%(contents:body)' "$tag"
+            # Guarded because `%(contents:body)` on a lightweight tag falls through
+            # to the commit message, which is not release notes.
+            if [ "$(git cat-file -t "$tag")" = tag ]; then
+              git tag -l --format='%(contents:body)' "$tag"
+            fi
             echo '### Changes'
             echo
             if [ -n "$previous" ]; then
