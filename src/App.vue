@@ -5,6 +5,8 @@ import type {
   EDID, DisplayDescriptor, ScreenSize, VideoInputDefinition, EstablishedTiming, StandardTiming,
   CEAExtensionBlock, VendorSpecificDataBlock, CEADetailedTiming, ColorimetryDataBlock,
   HDRStaticMetadataDataBlock, YCbCr420VideoDataBlock, YCbCr420CapabilityMapDataBlock, VideoDataBlock,
+  DisplayIdAdaptiveSyncBlock, DisplayIdDisplayParametersBlock, DisplayIdDynamicRangeLimitsBlock,
+  DisplayIdInterfaceFeaturesBlock, DisplayIdProductIdentificationBlock, DisplayIdTiledDisplayBlock,
 } from 'edidts'
 import type { EDIDViewModel } from '@/types/edid'
 import TopNav from '@/components/layout/TopNav.vue'
@@ -29,6 +31,14 @@ import CEAHDRMetadata from '@/components/cea/CEAHDRMetadata.vue'
 import CEAYCbCr420 from '@/components/cea/CEAYCbCr420.vue'
 import CEAVideoCapability from '@/components/cea/CEAVideoCapability.vue'
 import CEADetailedTimings from '@/components/cea/CEADetailedTimings.vue'
+import DisplayIDOverview from '@/components/displayid/DisplayIDOverview.vue'
+import DisplayIDProductId from '@/components/displayid/DisplayIDProductId.vue'
+import DisplayIDDisplayParams from '@/components/displayid/DisplayIDDisplayParams.vue'
+import DisplayIDTimings from '@/components/displayid/DisplayIDTimings.vue'
+import DisplayIDInterfaceFeatures from '@/components/displayid/DisplayIDInterfaceFeatures.vue'
+import DisplayIDTiled from '@/components/displayid/DisplayIDTiled.vue'
+import DisplayIDAdaptiveSync from '@/components/displayid/DisplayIDAdaptiveSync.vue'
+import DisplayIDOtherBlocks from '@/components/displayid/DisplayIDOtherBlocks.vue'
 import { useEDID } from '@/composables/useEDID'
 import { exportEdidFile } from '@/lib/exportEdid'
 import { getSectionRanges } from '@/lib/byteRanges'
@@ -210,6 +220,27 @@ function updateTimings(field: string, value: unknown) {
 }
 
 const ceaExtension = computed(() => edidRef.value?.ceaExtension ?? null)
+
+const displayIdExtensions = computed(() => edidRef.value?.displayIdExtensions ?? [])
+
+/** Blocks from every parsed DisplayID section, in section then block order. */
+const displayIdBlocks = computed(() =>
+  displayIdExtensions.value.flatMap(extension => extension.section?.blocks ?? [])
+)
+
+/** Finds the first block with a tag; DisplayID allows at most one of each of these. */
+function displayIdBlock<T>(tag: number): T | null {
+  return (displayIdBlocks.value.find(block => block.tag === tag) as T | undefined) ?? null
+}
+
+const displayIdProduct = computed(() =>
+  displayIdBlock<DisplayIdProductIdentificationBlock>(0x20)
+)
+const displayIdParams = computed(() => displayIdBlock<DisplayIdDisplayParametersBlock>(0x21))
+const displayIdInterface = computed(() => displayIdBlock<DisplayIdInterfaceFeaturesBlock>(0x26))
+const displayIdTiled = computed(() => displayIdBlock<DisplayIdTiledDisplayBlock>(0x28))
+const displayIdAdaptiveSync = computed(() => displayIdBlock<DisplayIdAdaptiveSyncBlock>(0x2b))
+const displayIdRangeLimits = computed(() => displayIdBlock<DisplayIdDynamicRangeLimitsBlock>(0x25))
 
 const highlightedBytes = computed(() => getSectionRanges(activeSection.value, edidData.value))
 
@@ -543,6 +574,14 @@ function updateCEA(field: string, value: unknown) {
           {{ error }}
         </div>
 
+        <div
+          v-if="edidRef?.extensionCountMismatch"
+          class="mb-4 p-4 bg-amber-500/10 border border-amber-500 rounded-lg text-amber-600 dark:text-amber-400 text-sm"
+        >
+          This EDID declares {{ edidRaw?.extensions }} extension block(s) at byte 126 but contains
+          {{ edidRef.extensionBlocks.length }}. All blocks present are shown; saving will write the corrected count.
+        </div>
+
         <div v-if="!isLoaded" class="max-w-xl mx-auto">
           <EDIDUpload @load-hex="loadFromHex" @load-file="loadFromFile" />
         </div>
@@ -607,6 +646,26 @@ function updateCEA(field: string, value: unknown) {
             @remove-timing="removeCEATiming"
             @update-timing="updateCEATiming"
           />
+
+          <!-- DisplayID sections -->
+          <DisplayIDOverview
+            v-else-if="activeSection === 'did-overview'"
+            :extensions="displayIdExtensions"
+          />
+          <DisplayIDProductId v-else-if="activeSection === 'did-product'" :block="displayIdProduct" />
+          <DisplayIDDisplayParams v-else-if="activeSection === 'did-params'" :block="displayIdParams" />
+          <DisplayIDTimings v-else-if="activeSection === 'did-timings'" :blocks="displayIdBlocks" />
+          <DisplayIDInterfaceFeatures
+            v-else-if="activeSection === 'did-interface'"
+            :block="displayIdInterface"
+          />
+          <DisplayIDAdaptiveSync
+            v-else-if="activeSection === 'did-adaptive-sync'"
+            :adaptive-sync="displayIdAdaptiveSync"
+            :range-limits="displayIdRangeLimits"
+          />
+          <DisplayIDTiled v-else-if="activeSection === 'did-tiled'" :block="displayIdTiled" />
+          <DisplayIDOtherBlocks v-else-if="activeSection === 'did-other'" :blocks="displayIdBlocks" />
         </div>
       </main>
       <section id="hex-viewer" class="h-full scroll-mt-24">

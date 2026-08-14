@@ -73,4 +73,5 @@ export type {
   VTBDetailedTiming,
   VTBExtensionBlock,
   BlockMapExtension,
+  DisplayIDExtensionBlock,
 } from './extension-block';

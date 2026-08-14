@@ -83,9 +83,41 @@ const addableBlocks = computed(() => {
   return options
 })
 
-const hasDisplayID = computed(() =>
-  props.edid?.extensionBlocks?.some(b => b.tag === 0x70) ?? false
+const displayIdExtensions = computed(() => props.edid?.displayIdExtensions ?? [])
+
+const hasDisplayID = computed(() => displayIdExtensions.value.length > 0)
+
+/**
+ * The union of every parsed DisplayID section's blocks. A display may split its
+ * blocks across several sections, and the detail views describe the display as
+ * a whole rather than one section at a time.
+ */
+const displayIdBlocks = computed(() =>
+  displayIdExtensions.value.flatMap(extension => extension.section?.blocks ?? [])
 )
+
+const displayIdChildren = computed(() => {
+  const blocks = displayIdBlocks.value
+  if (blocks.length === 0) return []
+
+  const has = (...tags: number[]) => blocks.some(b => tags.includes(b.tag))
+  const items: { id: string; label: string }[] = []
+
+  if (has(0x20)) items.push({ id: 'did-product', label: 'Product Identification' })
+  if (has(0x21)) items.push({ id: 'did-params', label: 'Display Parameters' })
+  if (has(0x03, 0x22, 0x23, 0x24, 0x2a)) items.push({ id: 'did-timings', label: 'Video Timings' })
+  if (has(0x26)) items.push({ id: 'did-interface', label: 'Interface Features' })
+  if (has(0x2b, 0x25)) items.push({ id: 'did-adaptive-sync', label: 'Adaptive-Sync' })
+  if (has(0x28)) items.push({ id: 'did-tiled', label: 'Tiled Display' })
+
+  // Anything without a dedicated view above still needs somewhere to surface.
+  const covered = [0x03, 0x20, 0x21, 0x22, 0x23, 0x24, 0x2a, 0x26, 0x2b, 0x25, 0x28]
+  if (blocks.some(b => !covered.includes(b.tag))) {
+    items.push({ id: 'did-other', label: 'Other Blocks' })
+  }
+
+  return items
+})
 
 function selectSection(id: string) {
   emit('update:activeSection', id)
@@ -211,13 +243,27 @@ function selectSection(id: string) {
       </Button>
 
       <!-- DisplayID extension -->
-      <button
-        v-if="hasDisplayID"
-        class="flex items-center gap-1.5 px-2 py-1.5 rounded-md font-semibold text-left w-full mt-1 text-muted-foreground cursor-default opacity-60"
-        disabled
-      >
-        DisplayID
-      </button>
+      <template v-if="hasDisplayID">
+        <button
+          class="flex items-center gap-1.5 px-2 py-1.5 rounded-md font-semibold text-left w-full mt-1 hover:bg-accent/50 transition-colors"
+          :class="activeSection === 'did-overview' ? 'bg-accent text-accent-foreground' : 'text-foreground'"
+          @click="selectSection('did-overview')"
+        >
+          DisplayID
+        </button>
+
+        <div class="ml-3 border-l border-border pl-2 flex flex-col gap-0.5">
+          <button
+            v-for="child in displayIdChildren"
+            :key="child.id"
+            class="px-2 py-1 rounded-md text-left w-full hover:bg-accent/50 transition-colors"
+            :class="activeSection === child.id ? 'bg-accent text-accent-foreground' : 'text-muted-foreground'"
+            @click="selectSection(child.id)"
+          >
+            {{ child.label }}
+          </button>
+        </div>
+      </template>
     </template>
   </aside>
 </template>
