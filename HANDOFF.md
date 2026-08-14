@@ -2,10 +2,11 @@
 
 Written for whoever (or whatever) picks this up cold. Read CLAUDE.md first for repo layout and conventions; this document is the state of play and the open threads.
 
-Two features are documented, most recent first:
+Three features are documented, in the order their sections appear:
 
 1. **DisplayID extension block parsing** — §1–§5. Merged; editing still unimplemented.
 2. **Read EDID from a connected display** — §6. Shipped; two platforms still unverified.
+3. **CI builds and releases the desktop app** — §7. Shipped; `v0.1.0` is published.
 
 ---
 
@@ -16,9 +17,10 @@ Two features are documented, most recent first:
 | Branch | `main` is current. `feat/displayid-parsing` is merged and can be deleted. |
 | PR | [#1](https://github.com/PikaJian/edid-editor-vue/pull/1) — **merged** as `99625de`; the feature commit is `859b491` |
 | Tests | 164 passing (`npm test`), plus 4 Rust (`cd src-tauri && cargo test --lib`, 1 more `#[ignore]`d) |
+| Release | [v0.1.0](https://github.com/PikaJian/edid-editor-vue/releases/tag/v0.1.0) — published, tagged at `e1937c4`. Universal macOS `.dmg`, Windows `.msi` + NSIS `-setup.exe`, all built by CI. See §7. |
 | Untracked | `edid.bin` in the repo root — a real MSI MAG 272URDF dump used while debugging. Its bytes are already committed as a fixture, so the file itself is deliberately not tracked. |
 
-`origin` is the fork `PikaJian/edid-editor-vue`; `upstream` is `thyge/edid-editor`. Nothing has been pushed to upstream, so the fork is ahead of it by everything described here.
+`origin` is `PikaJian/edid-editor-vue`; `upstream` is `thyge/edid-editor`. Nothing has been pushed to upstream, so origin is ahead of it by everything described here. GitHub does **not** record origin as a fork of upstream (`fork=false`, `parent=none`) — they are linked only by the local remote. Two consequences: `gh` resolves this working copy to **upstream** unless told otherwise, so every `gh` command here needs `-R PikaJian/edid-editor-vue` (or run `gh repo set-default` once); and Actions was enabled from the start, since it is the fork case that needs manual enabling.
 
 ---
 
@@ -173,3 +175,50 @@ with **real** EDID arrays from `ioreg -r -c IOPortTransportStateDisplayPort -w0`
 2. **Hot-plug / stale state.** The list is a one-shot `invoke()` per menu click. Unplugging between opening the picker and choosing an entry loads the cached bytes rather than erroring. Expected today, not a bug; a "Refresh" button in `DisplayPickerDialog.vue` would fix it if users hit it.
 3. **Packaged-app permissions untested.** IORegistry reads needed no privacy consent in dev, but the signed `.app` under hardened runtime has not been tried. If the bundle finds zero displays where `tauri dev` finds them, look at entitlements/Info.plist first.
 4. **Picker keyboard nav** is native `<button>` focus order only. Fine now; revisit if the dialog grows.
+
+---
+
+# 7. CI builds and releases the desktop app (shipped)
+
+`.github/workflows/release.yml`. Tauri does not cross-compile, so each platform needs its own runner; the workflow fans out over a matrix and lets `tauri-apps/tauri-action` do the build and the release upload.
+
+| Runner | Rust target | Bundles |
+|---|---|---|
+| `macos-latest` | `universal-apple-darwin` (both arches installed) | `.dmg` only — see below |
+| `windows-latest` | `x86_64-pc-windows-msvc` | `.msi` + NSIS `-setup.exe` |
+
+Linux is deliberately absent — the request was macOS and Windows. Adding it is one matrix entry plus Tauri's `webkit2gtk`/`libappindicator` apt packages, which the other two runners need nothing equivalent to.
+
+### Cutting a release
+
+```bash
+# 1. bump `version` in src-tauri/tauri.conf.json
+# 2. tag and push
+git tag -a v0.1.0 -m "..."
+git push origin v0.1.0
+```
+
+Both runners build, then attach their bundles to a **draft** release. Publish it by hand (`gh release edit vX.Y.Z --draft=false`, plus `-R`). Draft is deliberate: the two jobs finish minutes apart, and a published release would be visible while still half-empty. `releaseDraft: false` in the workflow makes it automatic if that trade is ever worth making.
+
+`workflow_dispatch` (Actions → Release → Run workflow) builds both platforms **without** creating a release — `tagName` resolves to an empty string on a non-tag ref, which tauri-action treats as build-only — and uploads the bundles as workflow artifacts instead. Use this to check a build before committing to a tag.
+
+With a warm `Swatinem/rust-cache` a full run is ~7 minutes. Cold it is ~19, dominated by the Windows job and the macOS universal build compiling twice.
+
+### Things that were not obvious
+
+- **`npm ci` needs a step that `npm run dev` never did.** `tauri.conf.json`'s `beforeBuildCommand` is `npm run build`, which has no `prebuild` hook, and `packages/edidts/dist` is gitignored — so CI's fresh clone must run `npm run build --workspace=edidts` explicitly or the frontend build dies on an unresolved `edidts` import. This is the CLAUDE.md footgun, hit exactly as documented.
+- **The committed lock file was internally inconsistent and only `npm ci` cared.** It carried a top-level `@emnapi/wasi-threads` but not the `@emnapi/core`/`@emnapi/runtime` that depend on it; npm had pruned those optional platform-specific packages. `npm install` tolerates that, `npm ci` refuses, so both runners failed before compiling anything. Fixed in `67414f2` by `npm install --package-lock-only` — additions only, no dependency version changes. **If you ever regenerate the lock on one platform, check those additions survive**; losing them silently breaks CI while local installs stay fine.
+- **A tag that disagrees with `tauri.conf.json` fails the job up front**, by design — otherwise `v0.2.0` could ship an app reporting `0.1.0`. Only `tauri.conf.json` is checked; `package.json` is still `0.0.0` and does not feed the app version.
+- **The bundled binary needed `mainBinaryName`.** It took its name from the Cargo package (`app`), so the first build shipped `Contents/MacOS/app` and `app.exe`. `mainBinaryName: "EDID Editor"` (`e1937c4`) makes the CLI rename it; the value carries no extension, since Tauri adds the per-platform one.
+- **`bundle.targets: "all"` also emits the updater-format `.app.tar.gz`**, which tauri-action then attaches — a second 6MB download next to the `.dmg` with no purpose, since nothing configures an updater. CI passes `--bundles dmg` (`59dcd52`) rather than narrowing the config, so local `npm run tauri build` and the README's description of it stay as they were.
+
+### What was actually verified
+
+The macOS bundle was downloaded and mounted: `EDID Editor.app`, executable `Contents/MacOS/EDID Editor`, `lipo -archs` → `x86_64 arm64`, `CFBundleExecutable = EDID Editor`, version `0.1.0`. Windows was confirmed from the build log only (`Built application at: ...\release\EDID Editor.exe`, `Finished 2 bundles`) — **an installer that builds is not an installer that runs.**
+
+### Open items
+
+1. **Nobody has run the Windows build.** This is the same gap as §6 open item 1, but narrower now: the Windows `display_edid.rs` path compiles, and there is an installer to test with. Install `EDID Editor_0.1.0_x64-setup.exe`, attach a monitor, and check the registry read actually returns bytes.
+2. **Nothing is code-signed.** macOS Gatekeeper blocks the first launch and Windows SmartScreen warns; the release body says so and gives the workarounds. Fixing it needs an Apple Developer ID certificate and a Windows code-signing certificate as repository secrets — see [Tauri's signing docs](https://v2.tauri.app/distribute/sign/). Note that signing macOS properly also means notarization, which is a separate credential and a build-time network round trip.
+3. **`v0.1.0`'s tagged tree predates the `--bundles dmg` fix.** The published release is correct — the stray `.app.tar.gz` was deleted from the draft rather than rebuilt, since the `.dmg` is byte-identical either way — but re-running that tag's workflow would re-attach it. The flag decides which bundles are emitted, not what goes inside the `.dmg`, which is why deleting the asset was enough. Harmless; noted so it is not mistaken for a regression.
+4. **`actions/upload-artifact@v4` raises a Node 20 deprecation warning** (currently forced onto Node 24). Bumping to v5 clears it. Affects only the artifact step, which tag runs skip entirely.
