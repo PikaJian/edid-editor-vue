@@ -1,271 +1,157 @@
-# Handoff: Read EDID from a connected display
+# Handoff
 
-Written for Codex picking this up cold. This document describes the
-**"Read from connected display"** feature — reading raw EDID bytes directly
-off attached monitors instead of only from a file/hex-paste, in the Tauri
-desktop build.
+Written for whoever (or whatever) picks this up cold. Read CLAUDE.md first for repo layout and conventions; this document is the state of play and the open threads.
 
-Base commit for this feature: `ebe57dd` (`feat: read EDID directly from
-attached displays (desktop build)`), on top of the CEA-editing work in the
-commits before it. `git log --oneline -15` for full context.
+Two features are documented, most recent first:
 
-## 1. Goal
+1. **DisplayID extension block parsing** — §1–§5. Merged; editing still unimplemented.
+2. **Read EDID from a connected display** — §6. Shipped; two platforms still unverified.
 
-The app already lets you load an EDID from a file or a pasted hex string
-(`src/composables/useEDID.ts`). This feature adds a third source: pull the
-raw 128(+N×128)-byte EDID blob straight from an actually-attached monitor,
-via the OS. This only works in the Tauri desktop build — a browser has no
-API for this, so the menu entry is hidden entirely on the web build.
+---
 
-Scope is deliberately narrow: **read only**, no ability to write an EDID
-back to a monitor (most OSes don't expose that, and it's out of scope for
-an editor). Parsing/decoding is *not* duplicated on the Rust side — Rust
-hands back raw bytes, and the existing `edidts` TS package (already used for
-file/hex loading) decodes them.
+## Where things stand
 
-## 2. Frontend ↔ Tauri command contract
+| | |
+|---|---|
+| Branch | `main` is current. `feat/displayid-parsing` is merged and can be deleted. |
+| PR | [#1](https://github.com/PikaJian/edid-editor-vue/pull/1) — **merged** as `99625de`; the feature commit is `859b491` |
+| Tests | 164 passing (`npm test`), plus 4 Rust (`cd src-tauri && cargo test --lib`, 1 more `#[ignore]`d) |
+| Untracked | `edid.bin` in the repo root — a real MSI MAG 272URDF dump used while debugging. Its bytes are already committed as a fixture, so the file itself is deliberately not tracked. |
 
-### The Tauri command
+`origin` is the fork `PikaJian/edid-editor-vue`; `upstream` is `thyge/edid-editor`. Nothing has been pushed to upstream, so the fork is ahead of it by everything described here.
+
+---
+
+# 1. DisplayID parsing — goal
+
+Make DisplayID extension blocks readable. They previously rendered nothing at all.
+
+Scope delivered: full decode **and** encode in `edidts` for the DisplayID data blocks, plus read-only UI panels. Editing DisplayID fields from the UI is **not** implemented — the request was to be able to read them, and the encoders exist for round-trip fidelity rather than to back an editor.
+
+## 2. Why it was broken — three independent causes
+
+All three had to be fixed; any one of them alone would still have produced an empty view.
+
+1. **Extension tag `0x70` was never routed.** `ExtensionBlockParser.decode()` handled `0x02`, `0x10` and `0xF0` only; DisplayID fell through to the generic branch. The `displayid/` module already existed in the package and **was never called by anything**. If a future extension type looks "implemented but dead", check the dispatch switch first.
+
+2. **The extension count byte was trusted.** `EDID.decode()` looped `i < bytes[126]`. The MSI dump declares **1** extension while carrying **2** (CTA + DisplayID), all three blocks checksum-valid, so the DisplayID block was never even read. Now every complete 128-byte block present is decoded and the disagreement surfaces as `EDID.extensionCountMismatch`.
+
+3. **No UI existed.** `LeftNav` rendered a disabled, greyed-out "DisplayID" button and `App.vue` had no view to route to.
+
+A fourth issue only appeared once real hardware was tested: the section decoder required version byte `0x20` **exactly**, so the v1.2 section in the MSI dump was rejected outright. See §4.
+
+## 3. What was implemented
+
+### `packages/edidts/src/displayid/`
+
+`section.ts` and `blocks.ts` handle framing and dispatch; one module per data block. `bytes.ts` (little-endian readers, OUI formatting) and `half-float.ts` (IEEE 754 binary16 incl. the `-0` sentinel) are the shared helpers.
+
+Decoded and encoded per DisplayID v2.1a section 4:
+
+| Tag | Block | Tag | Block |
+|---|---|---|---|
+| `20h` | Product Identification | `2Ah` | Type X Formula-based Timing |
+| `21h` | Display Parameters | `2Bh` | Adaptive-Sync |
+| `22h` | Type VII Detailed Timing | `2Eh` | Brightness Luminance Range |
+| `23h` | Type VIII Enumerated Timing Code | `7Eh` | Vendor-specific |
+| `24h` | Type IX Formula-based Timing | `81h` | CTA-861 Encapsulation |
+| `25h` | Dynamic Video Timing Range Limits | `26h` | Display Interface Features |
+| `27h` | Stereo Display Interface | `28h` | Tiled Display Topology |
+| `29h` | ContainerID | | |
+
+`2Ch`/`2Dh` (ARVR) are named but kept raw — spec §4.10 forbids them in EDID Extension Sections.
+
+The format traps that cost time (minus-one encoding, per-type pixel clock units, variable descriptor sizes, revision-dependent bit meanings, the half-float `-0` sentinel) are written up in **CLAUDE.md → DisplayID specifics** rather than repeated here.
+
+### Wiring and UI
+
+- `cta/extension-block.ts` — `DisplayIDExtensionBlock` (tag `0x70`), decode/encode cases. The section occupies bytes 1–126 of the extension; a section that fails to parse is reported via `sectionError` instead of throwing, so one bad block cannot make a whole EDID unreadable.
+- `edid/index.ts` — `EDID.displayIdExtensions` getter, all-blocks-present decoding, `extensionCountMismatch`.
+- `src/components/displayid/` — 8 read-only panels. `DisplayIDField.vue` is the shared label/value row.
+- `src/lib/displayIdLabels.ts` — presentation-layer labels for the spec's enumerations, kept out of the decoder so the model stays numeric and faithful to the bytes.
+- `LeftNav.vue` — DisplayID children derived from the blocks actually present, so a monitor with one block gets one entry.
+- `byteRanges.ts` — per-block hex highlighting, walking the encoded bytes.
+- `App.vue` — an amber warning banner when `extensionCountMismatch` is set.
+
+### Behaviour change worth knowing
+
+Re-encoding an EDID whose byte 126 was wrong **writes the corrected count**, which also changes the base block checksum. Saving such a file does not reproduce the input bytes. This is intentional and called out in the PR, but it is the one place where "load then save" is not a no-op.
+
+## 4. The v1.x discovery — and what it implies
+
+`edid.bin` (MSI MAG 272URDF) turned out to carry a **DisplayID Structure v1.2** section, not v2.x. Version byte `0x12`, containing legacy tag `03h` = Type I Detailed Timing with three 4K timings.
+
+The v2.1a spec pins Type I's layout precisely enough to implement: §4.3.1 states the Type VII descriptor is the v1.2 Type I descriptor *"except for Bytes 0, 1, 2 … which carry the pixel clock information"*. Type I uses **10 kHz** units where Type VII uses 1 kHz. The numbers confirm it — 10 kHz yields exactly 120.00 and 160.00 Hz, while 1 kHz would give 12 and 16 Hz.
+
+**Implication for future work:** v1.x is not a legacy curiosity, it is what monitors in hand actually ship. `displayid/legacy.ts` currently field-decodes only `03h`. Extending it needs the **DisplayID v1.3 specification**, which is not in this repo — the other v1.x tags have correct names and raw payloads, and guessing their layouts from memory would be worse than showing bytes. If someone supplies that spec, `legacy.ts` is where the work goes and Type I is the pattern to follow.
+
+Incidentally this explains what the block is *for*: those three timings (120 / 143.85 / 160 Hz at 4K) need 1097–1403 MHz pixel clocks, and the 18-byte DTD used by base EDID and CTA has a 16-bit/10 kHz clock field capping at **655.35 MHz**. They physically cannot be expressed anywhere else. 4K60 (533 MHz) sits in the base block's first DTD, and the standard modes have CTA VICs; DisplayID exists here purely to carry what neither can represent.
+
+## 5. Testing
+
+`npm test` → 164 passing, in four groups:
+
+- **`displayid-blocks.test.ts`** — per-block decode plus byte-for-byte round trip. Includes the spec's **Appendix A worked example**, checked against the interpretations the PDF itself prints (chromaticity 0.675/0.320, 400 cd/m², gamma 2.2, three timings).
+- **`displayid-extension.test.ts`** — the tag `0x70` path end to end, malformed-section reporting, and fixed-length repadding.
+- **`displayid-v1.test.ts`** — the real MSI dump: undercounted extensions, v1.2 acceptance, Type I refresh rates, round trip, corrected count on re-encode.
+- **`src/lib/byteRanges.displayid.test.ts`** — hex highlight ranges.
+
+Fixtures live in `packages/edidts/tests/fixtures.ts`: `DISPLAYID_V2_EXTENSION` (synthetic v2.0, 4K144-shaped) and `MSI_MAG272URDF_DISPLAYID_V1` (the real dump, verified byte-identical to `edid.bin`). `testedids.test.ts` auto-collects both and round-trips them.
+
+Two traps encountered while writing these, both of which produced *green* runs that tested nothing:
+
+- A multi-line hex fixture missing the `+` between string literals is valid JS via automatic semicolon insertion; the constant silently truncates to its first line and the loader's length check then skips it. Caught only by asserting the fixture equals `edid.bin` on disk.
+- App-level tests import `edidts` by package name and fail if `packages/edidts/dist` is absent, while the package's own tests import `../src` and pass. See CLAUDE.md.
+
+### Open items
+
+1. **DisplayID editing is not implemented.** Panels are read-only. The encoders are all there and round-trip tested, so wiring an editor is mostly UI: follow the `App.vue` handler → `syncEdid()` pattern the CEA panels use. Note the fixed 126-byte section length — `encodeDisplayIdSection` takes a `minimumLength` and pads with fill bytes, and a section whose blocks exceed the target keeps its natural length rather than silently dropping one, so an editor needs to surface "no room left" itself.
+2. **v1.x blocks beyond Type I** — see §4; blocked on the v1.3 spec.
+3. **Multiple DisplayID sections.** The detail panels show the union of all sections' blocks, which is right for describing one display, but if a real EDID ever carries conflicting blocks across sections the UI gives no way to tell them apart. The overview lists each section separately. No such EDID has been seen; revisit if one turns up.
+4. **`edid.bin` is untracked.** If it should be a checked-in sample, its bytes are already in `fixtures.ts` — decide whether a duplicate binary is wanted.
+
+---
+
+# 6. Read EDID from a connected display (shipped)
+
+Base commit `ebe57dd`. Pulls raw EDID bytes off attached monitors in the Tauri desktop build; hidden entirely on the web build, since browsers have no such API. **Read only** — writing an EDID back to a monitor is out of scope. Rust returns raw bytes and does no parsing, so a wrong decode is an `edidts` bug, not a bug here.
+
+### Contract
 
 ```rust
 // src-tauri/src/display_edid.rs
 #[tauri::command]
 pub fn read_display_edids() -> Result<Vec<DisplayEdid>, String>
 
-#[derive(Serialize, Clone)]
 pub struct DisplayEdid {
-  pub id: String,               // "display-0", "display-1", ... stable only within one call
-  pub connector: Option<String>,// OS-reported connector/port label, if any
-  pub bytes: Vec<u8>,           // raw EDID bytes, exactly as read — not validated beyond the header check below
+  pub id: String,                // "display-0", ... stable only within one call
+  pub connector: Option<String>, // OS-reported label, if any
+  pub bytes: Vec<u8>,            // raw, validated only for the EDID magic + length >= 128
 }
 ```
 
-Registered in `src-tauri/src/lib.rs`:
-```rust
-mod display_edid;
-...
-.invoke_handler(tauri::generate_handler![
-  save_edid_file,
-  display_edid::read_display_edids
-])
-```
+`serde` sends `Vec<u8>` as a JSON number array. `src/lib/readDisplayEdid.ts` is the **only** place that should call `invoke` for this, and converts to `Uint8Array`. `canReadDisplays()` (wrapping `isTauri()`) gates the `TopNav` menu item — the Tauri runtime's presence *is* the feature flag.
 
-`serde` serializes `Vec<u8>` as a JSON array of numbers (not base64), so the
-JS side receives `bytes: number[]`.
+Flow: `TopNav` → `App.vue: handleReadDisplay()` → `readDisplayEdids()` → Rust `collect()` → `dedupe()`. Zero displays sets the error banner; one skips the picker; two or more open `DisplayPickerDialog`. Selecting feeds the original raw bytes to `loadFromBytes()` — the dialog's own `new EDID(bytes)` decode is throwaway, only for list labels.
 
-### The frontend wrapper
-
-`src/lib/readDisplayEdid.ts` is the only file that should call `invoke`
-directly for this feature — everything else goes through it:
-
-```ts
-export interface DisplayEdid {
-  id: string
-  connector: string | null
-  bytes: Uint8Array   // converted from number[] here
-}
-
-export function canReadDisplays(): boolean   // wraps isTauri() from @tauri-apps/api/core
-export async function readDisplayEdids(): Promise<DisplayEdid[]>
-```
-
-`canReadDisplays()` is what gates the menu item — see `TopNav.vue`. There is
-no separate "is this feature enabled" flag; presence of the Tauri runtime
-*is* the flag. If you ever need to test this in a plain browser, mock
-`window.isTauri` and `window.__TAURI_INTERNALS__.invoke` before the app
-boots (see `check-display-read.js` under §5 for the exact pattern that was
-used to verify this end-to-end without a native build).
-
-### Call flow
-
-```
-TopNav "Read from connected display" click
-  → emit('read-display')
-  → App.vue: handleReadDisplay()
-      → readDisplayEdids()  [src/lib/readDisplayEdid.ts]
-          → invoke('read_display_edids')  [Tauri IPC]
-              → display_edid::read_display_edids()  [Rust]
-                  → platform::collect() (macOS/Linux/Windows impl)
-                  → dedupe(...)  (drops non-EDID blobs, collapses duplicates)
-      ← Vec<DisplayEdid>
-  → if 0 displays: set error banner, stop
-  → if 1 display: selectDisplay(that one) directly, skip the picker
-  → if 2+: open DisplayPickerDialog with the list
-DisplayPickerDialog "select" event
-  → App.vue: selectDisplay(display)
-      → loadFromBytes(display.bytes)  [existing useEDID.ts loader — same one file/hex loading uses]
-      → activeSection = 'overview'
-```
-
-## 3. What's done
-
-### Rust (`src-tauri/src/display_edid.rs`)
-
-One command, `read_display_edids`, with a platform-specific `collect()`
-behind `#[cfg(target_os = "...")]`, all funneled through the same
-`dedupe()` (validates the 8-byte EDID magic header `00 FF FF FF FF FF FF
-00`, rejects short blobs, collapses byte-identical duplicates that show up
-under more than one OS path for the same physical panel).
+### Platform status
 
 | Platform | Source | Status |
 |---|---|---|
-| macOS | Walks the whole IORegistry (`IOServicePlane`), reads whichever of `"EDID"` or `"IODisplayEDID"` is present on each entry. See note below — this is *not* the commonly-documented approach. | **Verified against real hardware**, byte-exact vs. `ioreg` output, on macOS 15.1 arm64 (Apple Silicon). |
-| Linux | Reads `/sys/class/drm/<connector>/edid` for every connector, skips empty files (nothing plugged in). | **Written, not tested** — no Linux machine was available. |
-| Windows | Reads `SYSTEM\CurrentControlSet\Enum\DISPLAY\<PnPID>\<instance>\Device Parameters\EDID` via `winreg`. | **Written, not tested** — no Windows machine was available. This is also why cross-compiling this project to Windows from macOS was flagged as painful in an earlier conversation — if you're picking this up on a Windows box, testing this path is the first thing to do. |
-| other | Returns an `Err` string. | intentional — no EDID source exists. |
+| macOS | Walks the whole IORegistry service plane, reading `"EDID"` or `"IODisplayEDID"` on every node | **Verified byte-exact against `ioreg`**, macOS 15.1 arm64 |
+| Linux | `/sys/class/drm/<connector>/edid`, skipping empty files | **Written, never run** |
+| Windows | `SYSTEM\CurrentControlSet\Enum\DISPLAY\...\Device Parameters\EDID` via `winreg` | **Written, never run** |
+| other | returns `Err` | intentional |
 
-**macOS gotcha, important if you touch this code:** the "obvious" API
-(`IODisplayCreateInfoDictionary` / the `IODisplayEDID` property on
-`IODisplayConnect` nodes) **does not work on Apple Silicon**. The property
-is gone. On M-series Macs the EDID blob instead lives under a plain
-`"EDID"` key on `IOPortTransportStateDisplayPort` nodes. Rather than
-hardcode that class name (which could plausibly shift again across macOS
-releases), the code walks the *entire* IORegistry service plane and checks
-both key names on every node. This is more expensive than a targeted
-lookup but the registry is small and this only runs on user action, so it
-wasn't worth optimizing.
+**macOS gotcha, important if you touch this:** the commonly-documented approach (`IODisplayCreateInfoDictionary` / `IODisplayEDID` on `IODisplayConnect` nodes) **does not work on Apple Silicon** — the property is gone. There the blob lives under a plain `"EDID"` key on `IOPortTransportStateDisplayPort` nodes. Rather than hardcode a class name that may shift again, the code walks the entire registry and checks both keys. Slower than a targeted lookup, but the registry is small and this only runs on user action.
 
-Cargo dependencies added (`src-tauri/Cargo.toml`), platform-gated so they
-don't bloat non-matching builds:
-```toml
-[target.'cfg(target_os = "macos")'.dependencies]
-core-foundation = "0.10"
-io-kit-sys = "0.4"
-libc = "0.2"
+Platform-gated Cargo deps: `core-foundation`/`io-kit-sys`/`libc` on macOS, `winreg` on Windows, nothing extra on Linux.
 
-[target.'cfg(target_os = "windows")'.dependencies]
-winreg = "0.52"
-```
-(Linux path only uses `std::fs`, no new dependency.)
+### Verifying without native hardware
 
-### Frontend
+`dedupe()`'s pure logic has four `cargo test --lib` tests that run anywhere. The real-hardware test is `#[ignore]`d: `cargo test --lib -- --ignored --nocapture` prints what it found — run this first on a new machine, since a failure there localises the bug to `platform::collect()`.
 
-- `src/lib/readDisplayEdid.ts` — the IPC wrapper described above.
-- `src/components/edid/DisplayPickerDialog.vue` — modal shown when 2+
-  displays are found. Decodes each blob with `new EDID(bytes)` from the
-  `edidts` package purely to show a human-readable name/resolution in the
-  list (falls back to `"<manufacturerId> <productCode>"` if there's no
-  product-name descriptor, and to a "could not be decoded" message if
-  `new EDID()` throws — a monitor could in principle report a malformed
-  blob). This decode is throwaway/display-only; the actual bytes handed to
-  `loadFromBytes` are the original raw ones, not round-tripped through this
-  decode.
-- `src/components/layout/TopNav.vue` — added a `read-display` emit and a
-  conditionally-rendered "Read from connected display" menu item, gated on
-  `canReadDisplays()`.
-- `src/App.vue` — `handleReadDisplay()` (calls the command, decides
-  single-display-vs-picker), `selectDisplay()` (feeds bytes into the
-  existing `loadFromBytes` from `useEDID.ts`), and the `<DisplayPickerDialog>`
-  mount with `v-model:open`.
-- `src/components/ui/dialog/` — shadcn-vue Dialog primitive, installed via
-  `npx shadcn-vue@latest add dialog` (per this repo's CLAUDE.md convention:
-  **never hand-write shadcn components**). Only `Dialog`, `DialogContent`,
-  `DialogHeader`, `DialogTitle`, `DialogDescription` are actually used by
-  `DisplayPickerDialog.vue`; the rest of the generated files
-  (`DialogFooter`, `DialogClose`, `DialogTrigger`, `DialogOverlay`,
-  `DialogScrollContent`) are unused scaffolding from the CLI and can stay —
-  don't hand-edit them, re-run the CLI if they ever need to change.
-
-**Dependency note:** the shadcn CLI run for this bumped `reka-ui`,
-`@vueuse/core`, and `@lucide/vue` in `package.json` as an unrelated side
-effect of scaffolding `dialog`. Those bumps were **deliberately reverted**
-(`git checkout package.json package-lock.json` + `npm install`) before
-committing, because `reka-ui` is the library backing the `Switch` component
-used everywhere else in the app, and a version bump there was an
-unnecessary risk to re-verify. If you add another shadcn component later
-and the CLI bumps deps again, apply the same judgment — don't let
-unrelated dependency churn ride in with a feature commit.
-
-## 4. Data structures — how an EDID is represented, end to end
-
-There are actually **three** representations of the same bytes in play,
-which matters if you're debugging a mismatch:
-
-1. **Rust `DisplayEdid.bytes: Vec<u8>`** — raw bytes exactly as the OS
-   handed them back. No validation beyond `looks_like_edid()` (magic header
-   + length ≥ 128). No decoding on the Rust side at all — Rust does not
-   know or care about EDID *structure*, only that it's "byte 0..8 == the
-   EDID magic".
-
-2. **TS `DisplayEdid.bytes: Uint8Array`** — same bytes, after
-   `invoke()`'s JSON round-trip turned them into `number[]` and
-   `readDisplayEdid.ts` wrapped them back into a `Uint8Array`.
-
-3. **`EDID` class instance** (`edidts` package, pre-existing, not part of
-   this feature) — the actual structured decode, used two places:
-   - `DisplayPickerDialog.vue`'s `describe()`, throwaway, just for the
-     picker list labels.
-   - `useEDID.ts`'s `setEdidPayload()` → `new EDID(bytes)`, the *real* one
-     that becomes the app's live document, after `loadFromBytes()` is
-     called from `selectDisplay()`.
-
-No new EDID parsing/model code was added for this feature — it entirely
-reuses the existing `edidts` package and `useEDID` composable. If a display
-decode looks wrong, the bug is almost certainly in `edidts`, not in
-anything under `src-tauri/src/display_edid.rs` or `src/lib/readDisplayEdid.ts`.
-
-### Multi-display picker payload shape
-
-`DisplayPickerDialog` receives the full `DisplayEdid[]` list as-is (not
-pre-formatted) and does its own `describe()` pass per item. There's no
-Rust-side "pick the best name" logic — deliberately, so the frontend's
-existing decoder is the single source of truth for how an EDID's product
-name is derived, rather than duplicating that logic in Rust from OS
-metadata that's less reliable anyway (e.g. macOS's own `ProductName` in the
-Metadata dict next to the EDID key is a *third*, potentially
-inconsistent, source of the same information — it was intentionally
-ignored in favor of decoding the actual EDID bytes).
-
-## 5. How to run and verify
-
-### Dev server (web-only, no display-read feature visible)
-```bash
-npm run dev
-```
-`canReadDisplays()` is false outside Tauri, so the menu item won't appear.
-Fine for everything else in the app, but you cannot exercise this feature
-this way alone (see the mock-based approach below if you need to iterate
-on `DisplayPickerDialog.vue` without rebuilding the Rust side each time).
-
-### Full desktop app (real hardware path)
-```bash
-npm run tauri dev
-```
-This compiles the Rust side (`cargo build` under the hood) and launches
-the actual native window. File → Read from connected display will hit the
-real platform `collect()`. This is the only way to test the Rust side
-against real monitors.
-
-### Rust unit tests
-```bash
-cd src-tauri
-cargo test --lib
-```
-Four tests cover `dedupe()`'s pure logic (header validation, short-blob
-rejection, duplicate collapsing, id assignment) — these run on any
-platform, no hardware needed.
-
-One more test hits real hardware and is `#[ignore]`d by default:
-```bash
-cargo test --lib -- --ignored --nocapture
-```
-`dumps_attached_displays` calls the real `read_display_edids()` and prints
-what it found. Useful as a sanity check on a new machine before touching
-the frontend at all — if this doesn't find your displays, the bug is
-entirely in `platform::collect()` for that OS, not anywhere else.
-
-### Typecheck
-```bash
-npm run build   # runs vue-tsc -b then vite build
-# or, faster, just the check:
-npx vue-tsc --noEmit
-```
-
-### Testing the picker/frontend flow without native hardware
-
-The frontend (`DisplayPickerDialog`, `App.vue`'s wiring) was verified
-end-to-end using Playwright against `npm run dev`, by injecting a fake
-Tauri runtime *before* the page loads:
+The frontend flow was verified with Playwright against `npm run dev` by injecting a fake Tauri runtime before page load:
 
 ```js
 await ctx.addInitScript(([displays]) => {
@@ -278,75 +164,12 @@ await ctx.addInitScript(([displays]) => {
   }
 }, [displays])
 ```
-where `displays` were **real** EDID byte arrays pulled from
-`ioreg -r -c IOPortTransportStateDisplayPort -w0` on the dev machine (not
-synthetic fixtures), so the picker's decode path was exercised against
-genuine monitor data. This is the fastest way to iterate on
-`DisplayPickerDialog.vue` or the picker-vs-single-display branching logic
-in `App.vue` without rebuilding the Rust binary. It does **not** exercise
-`display_edid.rs` at all — that still needs `npm run tauri dev` or
-`cargo test -- --ignored`.
 
-Byte-exactness of the Rust path was checked by diffing
-`cargo test -- --ignored --nocapture`'s hex dump against `ioreg`'s raw
-`EDID` property values for the same displays — they matched exactly, which
-is the strongest available evidence the IOKit walk isn't subtly
-mis-reading anything (e.g. truncating, byte-swapping, or picking up a
-stale cached value).
+with **real** EDID arrays from `ioreg -r -c IOPortTransportStateDisplayPort -w0`, not synthetic ones. Fastest way to iterate on the picker without rebuilding Rust; exercises none of `display_edid.rs`.
 
-## 6. Next priorities
+### Open items
 
-Roughly in order of what would break or matter first:
-
-1. **Test Linux and Windows for real.** Both `collect()` implementations
-   are written against documented OS behavior but have zero runtime
-   verification — unlike macOS, which was diffed byte-exact against
-   `ioreg`. If you have access to either OS, run
-   `cargo test --lib -- --ignored --nocapture` there first, before
-   touching anything else, exactly like was done for macOS. Pay particular
-   attention to:
-   - **Linux:** whether `/sys/class/drm/*/edid` is populated without root
-     (it should be world-readable, but confirm on the actual target distro/
-     kernel), and whether virtual/headless connectors show up with
-     zero-length files that need filtering (the `!bytes.is_empty()` guard
-     is there for this, but hasn't been exercised against a machine with
-     real disconnected-but-present connectors).
-   - **Windows:** whether the registry cache is stale after a monitor swap
-     (Windows doesn't always refresh `Device Parameters\EDID` immediately
-     on hot-plug — this may need a "refresh"/re-enumeration affordance in
-     the UI if it turns out to be an issue in practice, which cannot be
-     assessed from a Mac).
-
-2. **Multi-extension-block displays.** The macOS test hardware had one
-   display returning 384 bytes (base block + 2 CTA extensions) and it
-   round-tripped fine, but that's only one example. If a real-world EDID
-   with 3+ extension blocks, or a `0xF0` block-map extension, behaves
-   oddly in the picker's `describe()` decode, that's an `edidts`-level bug,
-   not this feature's — but it'll surface here first since this is a new
-   path for "arbitrary real-world bytes going into `new EDID()`" that
-   wasn't as exercised before (file/hex-paste users tend to paste bytes
-   they already trust).
-
-3. **Hot-plug / stale state.** There's currently no live-refresh — the
-   list is a one-shot `invoke()` per menu click. If a monitor is
-   unplugged between opening the picker and clicking an entry, the loaded
-   bytes are still whatever was cached at `collect()` time (harmless, just
-   stale) rather than an error. Not urgent, but worth a note if a user
-   reports "I picked a monitor I'd just unplugged and it loaded the old
-   data" — that's expected today, not a bug, but might warrant a
-   "Refresh" button in `DisplayPickerDialog.vue` if it comes up.
-
-4. **No permission-prompt handling.** Reading IORegistry data on macOS
-   didn't require any Sequoia-style privacy-consent dialog on the dev
-   machine tested (Terminal/dev app), but the compiled `.app` bundle under
-   Gatekeeper/hardened runtime in a production build has not been tested.
-   If the packaged app silently returns zero displays where `cargo tauri
-   dev` finds them, look at entitlements/Info.plist first — nothing in
-   `src-tauri/capabilities/default.json` currently declares anything
-   display-related, and it's untested whether that matters for this API
-   (IORegistry reads are not typically TCC-gated, but "typically" isn't
-   "confirmed for this exact property".)
-
-5. **Minor: the picker's list has no keyboard nav beyond native `<button>`
-   focus order.** Fine for now, but if this dialog grows (e.g. a "show raw
-   hex preview" expand-per-row), revisit accessibility.
+1. **Test Linux and Windows for real** — both are written against documented behavior with zero runtime verification. Start with `cargo test --lib -- --ignored --nocapture`. For Linux, confirm `/sys/class/drm/*/edid` is readable without root on the target distro and that disconnected connectors yield the empty files the `!bytes.is_empty()` guard expects. For Windows, check whether the registry value goes stale after a monitor swap — if so this may need a refresh affordance in the UI.
+2. **Hot-plug / stale state.** The list is a one-shot `invoke()` per menu click. Unplugging between opening the picker and choosing an entry loads the cached bytes rather than erroring. Expected today, not a bug; a "Refresh" button in `DisplayPickerDialog.vue` would fix it if users hit it.
+3. **Packaged-app permissions untested.** IORegistry reads needed no privacy consent in dev, but the signed `.app` under hardened runtime has not been tried. If the bundle finds zero displays where `tauri dev` finds them, look at entitlements/Info.plist first.
+4. **Picker keyboard nav** is native `<button>` focus order only. Fine now; revisit if the dialog grows.
