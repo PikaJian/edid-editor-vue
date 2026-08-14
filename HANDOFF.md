@@ -16,8 +16,8 @@ Three features are documented, in the order their sections appear:
 |---|---|
 | Branch | `main` is current. `feat/displayid-parsing` is merged and can be deleted. |
 | PR | [#1](https://github.com/PikaJian/edid-editor-vue/pull/1) — **merged** as `99625de`; the feature commit is `859b491` |
-| Tests | 164 passing (`npm test`), plus 4 Rust (`cd src-tauri && cargo test --lib`, 1 more `#[ignore]`d) |
-| Release | [v0.1.0](https://github.com/PikaJian/edid-editor-vue/releases/tag/v0.1.0) — published, tagged at `e1937c4`. Universal macOS `.dmg`, Windows `.msi` + NSIS `-setup.exe`, all built by CI. See §7. |
+| Tests | 164 passing (`npm test`), plus 7 Rust (`cd src-tauri && cargo test --lib`, 1 more `#[ignore]`d) |
+| Release | [v0.1.0](https://github.com/PikaJian/edid-editor-vue/releases/tag/v0.1.0) — published, tagged at `e1937c4`. Universal macOS `.dmg`, Windows `.msi` + NSIS `-setup.exe`, all built by CI. See §7. **Its Windows build lists every monitor ever attached**, fixed after the tag in `33ef688`; worth a v0.1.1 before pointing any Windows user at the release. |
 | Untracked | `edid.bin` in the repo root — a real MSI MAG 272URDF dump used while debugging. Its bytes are already committed as a fixture, so the file itself is deliberately not tracked. |
 
 `origin` is `PikaJian/edid-editor-vue`; `upstream` is `thyge/edid-editor`. Nothing has been pushed to upstream, so origin is ahead of it by everything described here. GitHub does **not** record origin as a fork of upstream (`fork=false`, `parent=none`) — they are linked only by the local remote. Two consequences: `gh` resolves this working copy to **upstream** unless told otherwise, so every `gh` command here needs `-R PikaJian/edid-editor-vue` (or run `gh repo set-default` once); and Actions was enabled from the start, since it is the fork case that needs manual enabling.
@@ -142,12 +142,14 @@ Flow: `TopNav` → `App.vue: handleReadDisplay()` → `readDisplayEdids()` → R
 |---|---|---|
 | macOS | Walks the whole IORegistry service plane, reading `"EDID"` or `"IODisplayEDID"` on every node | **Verified byte-exact against `ioreg`**, macOS 15.1 arm64 |
 | Linux | `/sys/class/drm/<connector>/edid`, skipping empty files | **Written, never run** |
-| Windows | `SYSTEM\CurrentControlSet\Enum\DISPLAY\...\Device Parameters\EDID` via `winreg` | **Written, never run** |
+| Windows | SetupAPI (`DIGCF_PRESENT`) for *which* monitors, then `SYSTEM\CurrentControlSet\Enum\<instance id>\Device Parameters\EDID` via `winreg` for the bytes | **Run once, on the v0.1.0 installer; the first implementation was wrong — see below.** The fix is unverified |
 | other | returns `Err` | intentional |
 
 **macOS gotcha, important if you touch this:** the commonly-documented approach (`IODisplayCreateInfoDictionary` / `IODisplayEDID` on `IODisplayConnect` nodes) **does not work on Apple Silicon** — the property is gone. There the blob lives under a plain `"EDID"` key on `IOPortTransportStateDisplayPort` nodes. Rather than hardcode a class name that may shift again, the code walks the entire registry and checks both keys. Slower than a targeted lookup, but the registry is small and this only runs on user action.
 
-Platform-gated Cargo deps: `core-foundation`/`io-kit-sys`/`libc` on macOS, `winreg` on Windows, nothing extra on Linux.
+**Windows gotcha, and the one bug real hardware has caught so far:** the registry is a cache of *every monitor ever attached*, not a list of attached monitors. `SYSTEM\CurrentControlSet\Enum\DISPLAY` keeps a device node per panel indefinitely — unplugging removes nothing — so the original implementation, which walked that tree, presented the machine's entire display history to a user with one monitor plugged in. Nothing inside those keys reliably marks a device as present. `33ef688` therefore asks SetupAPI which monitors exist (`SetupDiGetClassDevsW(GUID_DEVCLASS_MONITOR, …, DIGCF_PRESENT)`), and uses each returned instance ID to build the registry path the EDID is read from. **If you add another OS, assume its EDID store is a cache until proven otherwise** — macOS and Linux happen to expose live state, and that made this failure mode easy to not think about.
+
+Platform-gated Cargo deps: `core-foundation`/`io-kit-sys`/`libc` on macOS, `winreg` + `windows-sys` (feature `Win32_Devices_DeviceAndDriverInstallation`) on Windows, nothing extra on Linux. `windows-sys` was already in the tree via tauri, so it costs a reference and not a crate.
 
 ### Verifying without native hardware
 
@@ -171,7 +173,7 @@ with **real** EDID arrays from `ioreg -r -c IOPortTransportStateDisplayPort -w0`
 
 ### Open items
 
-1. **Test Linux and Windows for real** — both are written against documented behavior with zero runtime verification. Start with `cargo test --lib -- --ignored --nocapture`. For Linux, confirm `/sys/class/drm/*/edid` is readable without root on the target distro and that disconnected connectors yield the empty files the `!bytes.is_empty()` guard expects. For Windows, check whether the registry value goes stale after a monitor swap — if so this may need a refresh affordance in the UI.
+1. **Re-test Windows; test Linux at all.** Windows has now been run once, which is how the present-vs-ever-attached bug above was found; the `DIGCF_PRESENT` fix has not itself been confirmed against hardware. What to check: exactly the attached monitors are listed (a laptop's internal panel counts as one), and the bytes still decode. Two things the fix does not address — whether a *value* goes stale after swapping a different panel onto the same port (a swap should produce a new instance ID, so probably moot), and hot-plug, which is item 2. Linux remains written against documented behavior with zero runtime verification: confirm `/sys/class/drm/*/edid` is readable without root on the target distro and that disconnected connectors yield the empty files the `!bytes.is_empty()` guard expects. `cargo test --lib -- --ignored --nocapture` is the fastest probe on either platform, since a failure there localises the bug to `platform::collect()`.
 2. **Hot-plug / stale state.** The list is a one-shot `invoke()` per menu click. Unplugging between opening the picker and choosing an entry loads the cached bytes rather than erroring. Expected today, not a bug; a "Refresh" button in `DisplayPickerDialog.vue` would fix it if users hit it.
 3. **Packaged-app permissions untested.** IORegistry reads needed no privacy consent in dev, but the signed `.app` under hardened runtime has not been tried. If the bundle finds zero displays where `tauri dev` finds them, look at entitlements/Info.plist first.
 4. **Picker keyboard nav** is native `<button>` focus order only. Fine now; revisit if the dialog grows.
@@ -218,7 +220,7 @@ The macOS bundle was downloaded and mounted: `EDID Editor.app`, executable `Cont
 
 ### Open items
 
-1. **Nobody has run the Windows build.** This is the same gap as §6 open item 1, but narrower now: the Windows `display_edid.rs` path compiles, and there is an installer to test with. Install `EDID Editor_0.1.0_x64-setup.exe`, attach a monitor, and check the registry read actually returns bytes.
+1. **v0.1.0's Windows build carries a bug fixed after the tag.** The installer got run, and reading displays listed every monitor ever attached to the machine rather than the one plugged in (§6, Windows gotcha). `33ef688` fixes it on `main`; the release still has it. Cutting v0.1.1 is the point of the version-bump-then-tag flow above — and this is the first evidence the pipeline earns its keep, since the bug was reachable only from a real installer.
 2. **Nothing is code-signed.** macOS Gatekeeper blocks the first launch and Windows SmartScreen warns; the release body says so and gives the workarounds. Fixing it needs an Apple Developer ID certificate and a Windows code-signing certificate as repository secrets — see [Tauri's signing docs](https://v2.tauri.app/distribute/sign/). Note that signing macOS properly also means notarization, which is a separate credential and a build-time network round trip.
 3. **`v0.1.0`'s tagged tree predates the `--bundles dmg` fix.** The published release is correct — the stray `.app.tar.gz` was deleted from the draft rather than rebuilt, since the `.dmg` is byte-identical either way — but re-running that tag's workflow would re-attach it. The flag decides which bundles are emitted, not what goes inside the `.dmg`, which is why deleting the asset was enough. Harmless; noted so it is not mistaken for a regression.
 4. **`actions/upload-artifact@v4` raises a Node 20 deprecation warning** (currently forced onto Node 24). Bumping to v5 clears it. Affects only the artifact step, which tag runs skip entirely.
