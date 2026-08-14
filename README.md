@@ -141,6 +141,45 @@ building on (or targeting) Windows; you can't reliably produce one from
 macOS without a Windows VM/machine or CI (e.g. a GitHub Actions job using
 a `windows-latest` runner). The same applies in the other direction.
 
+### 4. Releasing (GitHub Actions)
+
+`.github/workflows/release.yml` does the cross-platform build for you. It
+runs on `macos-latest` and `windows-latest` in parallel and produces:
+
+* a **universal** macOS `.dmg` (Intel + Apple Silicon, via
+  `--target universal-apple-darwin`)
+* a Windows `.msi` and an NSIS `-setup.exe`
+
+To cut a release:
+
+```bash
+# 1. bump the version in src-tauri/tauri.conf.json (the workflow fails fast
+#    if the tag and that version disagree)
+# 2. tag and push
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The workflow attaches both platforms' installers to a **draft** GitHub
+release; review it under *Releases* and hit *Publish release* when the
+assets look right. (Draft is deliberate — the two runners finish at
+different times, so a published release would be visible while still
+half-empty. Set `releaseDraft: false` in the workflow to publish
+automatically instead.)
+
+Running the workflow manually (*Actions* → *Release* → *Run workflow*)
+builds both platforms **without** creating a release and uploads the
+bundles as workflow artifacts — useful for checking a build before
+committing to a tag.
+
+The binaries are **not code-signed**. macOS Gatekeeper blocks the first
+launch (right-click → *Open*, or
+`xattr -dr com.apple.quarantine "/Applications/EDID Editor.app"`) and
+Windows SmartScreen warns. Fixing that properly needs an Apple Developer
+ID certificate and a Windows code-signing certificate added as repository
+secrets; see the [Tauri signing
+docs](https://v2.tauri.app/distribute/sign/).
+
 ### Inspired by:
 
 * https://tomverbeure.github.io/video_timings_calculator

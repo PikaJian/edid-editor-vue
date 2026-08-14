@@ -1,0 +1,96 @@
+name: Release
+
+# Push a tag like v0.1.0 to build the desktop app on macOS + Windows and attach
+# the installers to a GitHub release. Run manually (workflow_dispatch) to build
+# without releasing — the bundles are uploaded as workflow artifacts instead.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # One universal (Intel + Apple Silicon) .dmg / .app
+          - platform: macos-latest
+            target: universal-apple-darwin
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+          # .msi + NSIS .exe installer
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            rust_targets: x86_64-pc-windows-msvc
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Check tag matches app version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          conf_version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          tag_version="${GITHUB_REF_NAME#v}"
+          if [ "$conf_version" != "$tag_version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match src-tauri/tauri.conf.json version $conf_version — bump the config before tagging, or the release will ship an app reporting the wrong version."
+            exit 1
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+          key: ${{ matrix.target }}
+
+      - run: npm ci
+
+      # tauri.conf.json's beforeBuildCommand is `npm run build`, which has no
+      # prebuild hook, so the edidts workspace package must be built first or
+      # the frontend build fails on an unresolved `edidts` import. See CLAUDE.md.
+      - name: Build edidts
+        run: npm run build --workspace=edidts
+
+      - uses: tauri-apps/tauri-action@v0
+        id: tauri
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Empty tagName => build only, no release (workflow_dispatch runs).
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+          releaseName: EDID Editor ${{ github.ref_name }}
+          releaseBody: |
+            Desktop builds of EDID Editor.
+
+            - **macOS**: `.dmg` (universal — Intel and Apple Silicon)
+            - **Windows**: `.msi` or the NSIS `-setup.exe`
+
+            These binaries are **not code-signed**. macOS Gatekeeper will refuse
+            the first launch — right-click the app and choose *Open*, or run
+            `xattr -dr com.apple.quarantine "/Applications/EDID Editor.app"`.
+            Windows SmartScreen will warn; choose *More info* → *Run anyway*.
+          releaseDraft: true
+          prerelease: false
+          args: --target ${{ matrix.target }}
+
+      - name: Upload bundles as artifacts
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: edid-editor-${{ matrix.target }}
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/**/*
+          if-no-files-found: error
