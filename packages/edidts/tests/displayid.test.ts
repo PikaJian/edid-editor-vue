@@ -147,9 +147,9 @@ describe('DisplayID v2.0 sections', () => {
     )
   })
 
-  it('throws when the DisplayID section version is not v2.0', () => {
+  it('throws when the DisplayID section is neither a v1.x nor a v2.x structure', () => {
     const sectionBytes = withChecksum([
-      0x10,
+      0x30,
       0x03,
       0x02,
       0x00,
@@ -160,8 +160,27 @@ describe('DisplayID v2.0 sections', () => {
     ])
 
     expect(() => decodeDisplayIdSection(sectionBytes)).toThrow(
-      'DisplayID section version byte 0x10 is not v2.0',
+      'DisplayID section version byte 0x30 is not a v1.x or v2.x structure',
     )
+  })
+
+  it('accepts a nonzero structure revision in the version byte', () => {
+    const sectionBytes = withChecksum([
+      0x21, // Version 2, structure revision 1
+      0x03,
+      0x02,
+      0x00,
+      0x7e,
+      0x00,
+      0x00,
+      0x00,
+    ])
+
+    const section = decodeDisplayIdSection(sectionBytes)
+
+    expect(section.version).toBe(2)
+    expect(section.revision).toBe(1)
+    expect(section.blocks).toHaveLength(1)
   })
 
   it('throws when the declared section length exceeds the available bytes', () => {

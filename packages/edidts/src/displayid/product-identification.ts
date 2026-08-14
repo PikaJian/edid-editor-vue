@@ -1,24 +1,47 @@
-import { DisplayIdDataBlockTag, type DisplayIdDataBlock, type DisplayIdProductIdentificationBlock } from './types';
+/**
+ * 4.1 Product Identification Data Block (tag 20h), DisplayID v2.1a.
+ */
+
+import {
+  decodeAscii,
+  encodeAscii,
+  formatIeeeOui,
+  readUint16,
+  readUint24,
+  readUint32,
+  writeUint24,
+  writeUint32,
+} from './bytes';
+import {
+  DisplayIdDataBlockTag,
+  type DisplayIdDataBlock,
+  type DisplayIdProductIdentificationBlock,
+} from './types';
 
 const MIN_PRODUCT_IDENTIFICATION_PAYLOAD_LENGTH = 12;
+
+/** Table 4-5: FFh in the week field means the year field carries a model year. */
+const MODEL_YEAR_TAG = 0xff;
 
 export function decodeProductIdentificationBlock(block: DisplayIdDataBlock): DisplayIdProductIdentificationBlock {
   const payload = block.payload;
   const productNameLength = payload[11] ?? 0;
   const productNameBytes = payload.slice(12, 12 + productNameLength);
-  const serialNumber = readUint32LE(payload, 5);
+  const serialNumber = readUint32(payload, 5);
   const weekByte = payload[9] ?? 0;
   const yearByte = payload[10] ?? 0;
+  const ieeeOui = readUint24(payload, 0);
 
   return {
     ...block,
     tag: DisplayIdDataBlockTag.ProductIdentification,
-    ieeeOui: payload[0] | (payload[1] << 8) | (payload[2] << 16),
-    productId: readUint16LE(payload, 3),
+    ieeeOui,
+    ieeeOuiText: formatIeeeOui(ieeeOui),
+    productId: readUint16(payload, 3),
     serialNumber: serialNumber === 0 ? undefined : serialNumber,
-    manufactureWeek: weekByte === 0 || weekByte === 0xff ? undefined : weekByte,
+    manufactureWeek: weekByte === 0 || weekByte === MODEL_YEAR_TAG ? undefined : weekByte,
     year: yearByte === 0 ? undefined : 2000 + yearByte,
-    isModelYear: weekByte === 0xff,
+    isModelYear: weekByte === MODEL_YEAR_TAG,
     productNameLength,
     productNameBytes,
     productName: decodeAscii(productNameBytes),
@@ -31,13 +54,11 @@ export function encodeProductIdentificationBlock(block: DisplayIdProductIdentifi
     : encodeAscii(block.productName);
   const payload = new Uint8Array(MIN_PRODUCT_IDENTIFICATION_PAYLOAD_LENGTH + productNameBytes.length);
 
-  payload[0] = block.ieeeOui & 0xff;
-  payload[1] = (block.ieeeOui >> 8) & 0xff;
-  payload[2] = (block.ieeeOui >> 16) & 0xff;
+  writeUint24(payload, 0, block.ieeeOui);
   payload[3] = block.productId & 0xff;
   payload[4] = (block.productId >> 8) & 0xff;
-  writeUint32LE(payload, 5, block.serialNumber ?? 0);
-  payload[9] = block.isModelYear ? 0xff : block.manufactureWeek ?? 0;
+  writeUint32(payload, 5, block.serialNumber ?? 0);
+  payload[9] = block.isModelYear ? MODEL_YEAR_TAG : block.manufactureWeek ?? 0;
   payload[10] = block.year === undefined ? 0 : Math.max(0, block.year - 2000) & 0xff;
   payload[11] = productNameBytes.length & 0xff;
   payload.set(productNameBytes, 12);
@@ -47,32 +68,4 @@ export function encodeProductIdentificationBlock(block: DisplayIdProductIdentifi
 
 export function isProductIdentificationPayloadLengthValid(payloadLength: number): boolean {
   return payloadLength >= MIN_PRODUCT_IDENTIFICATION_PAYLOAD_LENGTH;
-}
-
-function readUint16LE(data: Uint8Array, offset: number): number {
-  return data[offset] | (data[offset + 1] << 8);
-}
-
-function readUint32LE(data: Uint8Array, offset: number): number {
-  return (
-    data[offset] |
-    (data[offset + 1] << 8) |
-    (data[offset + 2] << 16) |
-    (data[offset + 3] << 24)
-  ) >>> 0;
-}
-
-function writeUint32LE(data: Uint8Array, offset: number, value: number): void {
-  data[offset] = value & 0xff;
-  data[offset + 1] = (value >> 8) & 0xff;
-  data[offset + 2] = (value >> 16) & 0xff;
-  data[offset + 3] = (value >> 24) & 0xff;
-}
-
-function decodeAscii(bytes: Uint8Array): string {
-  return Array.from(bytes, (byte) => String.fromCharCode(byte)).join('');
-}
-
-function encodeAscii(value: string): Uint8Array {
-  return new Uint8Array(Array.from(value, (character) => character.charCodeAt(0) & 0xff));
 }
