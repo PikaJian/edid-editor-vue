@@ -44,6 +44,26 @@ fn dedupe(found: Vec<(Option<String>, Vec<u8>)>) -> Vec<DisplayEdid> {
   out
 }
 
+/// Registry path holding a device's EDID, from the instance ID SetupAPI reports
+/// (`DISPLAY\GSM5B09\5&2a1bd7b&0&UID4353`). Windows-only in use, but kept out of
+/// the `#[cfg]`'d module so its behaviour is testable on any host.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn device_parameters_path(instance_id: &str) -> String {
+  format!(r"SYSTEM\CurrentControlSet\Enum\{instance_id}\Device Parameters")
+}
+
+/// The PnP hardware ID out of an instance ID — `GSM5B09` above. Not a connector
+/// in the sense the other platforms report one; it identifies the panel's
+/// vendor and model, which is the most useful label the Windows path has.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn connector_label(instance_id: &str) -> Option<String> {
+  instance_id
+    .split('\\')
+    .nth(1)
+    .filter(|part| !part.is_empty())
+    .map(str::to_string)
+}
+
 #[cfg(target_os = "macos")]
 mod platform {
   use core_foundation::base::{CFRelease, CFTypeRef, TCFType};
@@ -149,32 +169,93 @@ mod platform {
 
 #[cfg(target_os = "windows")]
 mod platform {
+  use super::{connector_label, device_parameters_path};
+  use windows_sys::Win32::Devices::DeviceAndDriverInstallation::{
+    SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInfo, SetupDiGetClassDevsW,
+    SetupDiGetDeviceInstanceIdW, HDEVINFO, DIGCF_PRESENT, GUID_DEVCLASS_MONITOR, SP_DEVINFO_DATA,
+  };
   use winreg::enums::HKEY_LOCAL_MACHINE;
   use winreg::RegKey;
 
-  /// Windows caches each monitor's EDID under
-  /// SYSTEM\CurrentControlSet\Enum\DISPLAY\<PnPID>\<instance>\Device Parameters\EDID.
+  /// `SetupDiGetClassDevsW` reports failure as INVALID_HANDLE_VALUE. It cannot be
+  /// compared against `Foundation::INVALID_HANDLE_VALUE` directly, because
+  /// windows-sys types `HDEVINFO` as an `isize` rather than a `HANDLE`.
+  const INVALID_HDEVINFO: HDEVINFO = -1;
+
+  /// MAX_DEVICE_ID_LEN is 200 wide chars including the terminator; this leaves slack.
+  const INSTANCE_ID_BUFFER: usize = 512;
+
+  /// Instance IDs of the monitors Windows currently reports as **present**, e.g.
+  /// `DISPLAY\GSM5B09\5&2a1bd7b&0&UID4353`.
+  ///
+  /// `DIGCF_PRESENT` is the entire point of going through SetupAPI. The registry
+  /// keeps a `SYSTEM\CurrentControlSet\Enum\DISPLAY\...` entry for every monitor
+  /// ever attached to the machine, and unplugging one does not remove it, so
+  /// walking that tree lists displays that have been gone for months. Nothing in
+  /// the key itself reliably says "attached"; only the device manager's notion of
+  /// presence does, which is what this asks for.
+  fn present_monitor_instance_ids() -> Result<Vec<String>, String> {
+    let mut ids = Vec::new();
+    unsafe {
+      let set = SetupDiGetClassDevsW(
+        &GUID_DEVCLASS_MONITOR,
+        std::ptr::null(),
+        std::ptr::null_mut(),
+        DIGCF_PRESENT,
+      );
+      if set == INVALID_HDEVINFO {
+        return Err("SetupDiGetClassDevsW failed for the monitor device class".into());
+      }
+
+      let mut index = 0u32;
+      loop {
+        let mut info = SP_DEVINFO_DATA {
+          cbSize: std::mem::size_of::<SP_DEVINFO_DATA>() as u32,
+          ..Default::default()
+        };
+        // Returns FALSE once the index runs past the last device, which is the
+        // only outcome we can act on — a genuine error looks the same here.
+        if SetupDiEnumDeviceInfo(set, index, &mut info) == 0 {
+          break;
+        }
+        index += 1;
+
+        let mut buffer = [0u16; INSTANCE_ID_BUFFER];
+        let mut required = 0u32;
+        let ok = SetupDiGetDeviceInstanceIdW(
+          set,
+          &info,
+          buffer.as_mut_ptr(),
+          buffer.len() as u32,
+          &mut required,
+        );
+        if ok == 0 {
+          continue;
+        }
+        let end = buffer.iter().position(|&c| c == 0).unwrap_or(buffer.len());
+        ids.push(String::from_utf16_lossy(&buffer[..end]));
+      }
+
+      SetupDiDestroyDeviceInfoList(set);
+    }
+    Ok(ids)
+  }
+
+  /// The EDID itself still comes from the registry — SetupAPI is used only to
+  /// decide *which* devices to read.
   pub fn collect() -> Result<Vec<(Option<String>, Vec<u8>)>, String> {
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
-    let display = hklm
-      .open_subkey(r"SYSTEM\CurrentControlSet\Enum\DISPLAY")
-      .map_err(|e| format!("could not open the DISPLAY registry key: {e}"))?;
-
     let mut found = Vec::new();
-    for pnp_id in display.enum_keys().flatten() {
-      let Ok(pnp_key) = display.open_subkey(&pnp_id) else {
+
+    for instance_id in present_monitor_instance_ids()? {
+      let Ok(params) = hklm.open_subkey(device_parameters_path(&instance_id)) else {
         continue;
       };
-      for instance in pnp_key.enum_keys().flatten() {
-        let Ok(params) = pnp_key.open_subkey(format!(r"{instance}\Device Parameters")) else {
-          continue;
-        };
-        let Ok(value) = params.get_raw_value("EDID") else {
-          continue;
-        };
-        if !value.bytes.is_empty() {
-          found.push((Some(pnp_id.clone()), value.bytes));
-        }
+      let Ok(value) = params.get_raw_value("EDID") else {
+        continue;
+      };
+      if !value.bytes.is_empty() {
+        found.push((connector_label(&instance_id), value.bytes));
       }
     }
     Ok(found)
@@ -246,6 +327,31 @@ mod tests {
       println!("    first16: {:02x?}", &d.bytes[..16]);
     }
     assert!(!displays.is_empty(), "expected at least one attached display");
+  }
+
+  /// The Windows instance ID is a registry path fragment, so it appends directly.
+  #[test]
+  fn builds_the_device_parameters_path_from_an_instance_id() {
+    assert_eq!(
+      device_parameters_path(r"DISPLAY\GSM5B09\5&2a1bd7b&0&UID4353"),
+      r"SYSTEM\CurrentControlSet\Enum\DISPLAY\GSM5B09\5&2a1bd7b&0&UID4353\Device Parameters"
+    );
+  }
+
+  #[test]
+  fn takes_the_pnp_id_as_the_connector_label() {
+    assert_eq!(
+      connector_label(r"DISPLAY\GSM5B09\5&2a1bd7b&0&UID4353").as_deref(),
+      Some("GSM5B09")
+    );
+  }
+
+  /// A malformed instance ID must not produce an empty or panicking label.
+  #[test]
+  fn has_no_connector_label_without_a_pnp_id() {
+    assert_eq!(connector_label("DISPLAY"), None);
+    assert_eq!(connector_label(r"DISPLAY\"), None);
+    assert_eq!(connector_label(""), None);
   }
 
   #[test]
