@@ -35,7 +35,11 @@ jobs:
     runs-on: ${{ matrix.platform }}
 
     steps:
+      # Full history and tags: the release notes are built from the commit range
+      # between this tag and the previous one.
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v5
         with:
@@ -52,6 +56,34 @@ jobs:
             echo "::error::Tag $GITHUB_REF_NAME does not match src-tauri/tauri.conf.json version $conf_version — bump the config before tagging, or the release will ship an app reporting the wrong version."
             exit 1
           fi
+
+      # Both matrix jobs compute this, and both pass it to tauri-action — whichever
+      # creates the release wins, and they agree, so there is nothing to race over.
+      - name: Build release notes
+        id: notes
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          tag="$GITHUB_REF_NAME"
+          # Nearest tag reachable before this one; empty for the first release.
+          previous=$(git describe --tags --abbrev=0 "$tag^" 2>/dev/null || true)
+          {
+            echo 'body<<RELEASE_NOTES_EOF'
+            # Body of the annotated tag message — the human summary of the release.
+            git tag -l --format='%(contents:body)' "$tag"
+            echo '### Changes'
+            echo
+            if [ -n "$previous" ]; then
+              git log --no-merges --pretty='- %s' "$previous..$tag"
+              echo
+              echo "**Full changelog**: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/$previous...$tag"
+            else
+              git log --no-merges --pretty='- %s' "$tag"
+            fi
+            echo
+            cat .github/release-notes-footer.md
+            echo 'RELEASE_NOTES_EOF'
+          } >> "$GITHUB_OUTPUT"
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -78,16 +110,8 @@ jobs:
           # Empty tagName => build only, no release (workflow_dispatch runs).
           tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
           releaseName: EDID Editor ${{ github.ref_name }}
-          releaseBody: |
-            Desktop builds of EDID Editor.
-
-            - **macOS**: `.dmg` (universal — Intel and Apple Silicon)
-            - **Windows**: `.msi` or the NSIS `-setup.exe`
-
-            These binaries are **not code-signed**. macOS Gatekeeper will refuse
-            the first launch — right-click the app and choose *Open*, or run
-            `xattr -dr com.apple.quarantine "/Applications/EDID Editor.app"`.
-            Windows SmartScreen will warn; choose *More info* → *Run anyway*.
+          # Annotated tag message + commit changelog + .github/release-notes-footer.md
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           prerelease: false
           args: --target ${{ matrix.target }} ${{ matrix.bundles }}
