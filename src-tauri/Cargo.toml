@@ -33,4 +33,13 @@ libc = "0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Devices_DeviceAndDriverInstallation", "Win32_Foundation"] }
+# COM/WMI, for the E-EDID blocks the registry does not cache. windows-sys has no
+# COM support; this version is already in the tree via tauri.
+windows = { version = "0.61", features = [
+  "Win32_System_Com",
+  "Win32_System_Ole",
+  "Win32_System_Rpc",
+  "Win32_System_Variant",
+  "Win32_System_Wmi",
+] }
 winreg = "0.52"
