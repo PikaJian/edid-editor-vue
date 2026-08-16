@@ -14,10 +14,10 @@ Three features are documented, in the order their sections appear:
 
 | | |
 |---|---|
-| Branch | `main` is current. `feat/displayid-parsing` is merged and can be deleted. |
-| PR | [#1](https://github.com/PikaJian/edid-editor-vue/pull/1) — **merged** as `99625de`; the feature commit is `859b491` |
+| Branch | `main` is current. `feat/displayid-parsing` and `fix/windows-edid-extension-blocks` are merged and can be deleted. |
+| PR | [#1](https://github.com/PikaJian/edid-editor-vue/pull/1) — **merged** as `99625de`; the feature commit is `859b491`. [#2](https://github.com/PikaJian/edid-editor-vue/pull/2) — **merged** as `f18f9f3`; Windows extension blocks via WMI, commits `db09a75`/`ae09858`/`b186ad6` |
 | Tests | 164 passing (`npm test`), plus 13 Rust (`cd src-tauri && cargo test --lib`, 1 more `#[ignore]`d) |
-| Release | **v0.1.1** is current — universal macOS `.dmg`, Windows `.msi` + NSIS `-setup.exe`, all built by CI. See §7. [v0.1.0](https://github.com/PikaJian/edid-editor-vue/releases/tag/v0.1.0) is superseded: its Windows build lists every monitor ever attached, fixed in `33ef688`. |
+| Release | **v0.1.1** is the newest tag, but `main` is now ahead of it: the Windows extension-block fix (#2) is unreleased. Cutting v0.1.2 means bumping `src-tauri/tauri.conf.json` first — see §7. [v0.1.0](https://github.com/PikaJian/edid-editor-vue/releases/tag/v0.1.0) is superseded: its Windows build lists every monitor ever attached, fixed in `33ef688`. |
 | Untracked | `edid.bin` in the repo root — a real MSI MAG 272URDF dump used while debugging. Its bytes are already committed as a fixture, so the file itself is deliberately not tracked. |
 
 `origin` is `PikaJian/edid-editor-vue`; `upstream` is `thyge/edid-editor`. Nothing has been pushed to upstream, so origin is ahead of it by everything described here. GitHub does **not** record origin as a fork of upstream (`fork=false`, `parent=none`) — they are linked only by the local remote. Two consequences: `gh` resolves this working copy to **upstream** unless told otherwise, so every `gh` command here needs `-R PikaJian/edid-editor-vue` (or run `gh repo set-default` once); and Actions was enabled from the start, since it is the fork case that needs manual enabling.
