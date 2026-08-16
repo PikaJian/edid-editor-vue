@@ -354,10 +354,11 @@ mod wmi_edid {
         content.as_ref().map(|c| c.len())
       );
 
-      // `ReturnValue` is deliberately *not* a gate. The documentation says 0 on
-      // success, but the `Invoke-CimMethod` loop that this was validated against
-      // ignores it entirely and reads good blocks regardless, so treating a
-      // non-zero value as fatal throws away data that is really there.
+      // `ReturnValue` is deliberately *not* a gate. It is documented as 0 on
+      // success, but the one driver this has been run against (Acer ACR0A68,
+      // Windows 10) does not populate it at all while returning perfectly good
+      // blocks, and the `Invoke-CimMethod` loop that reads the same monitor
+      // correctly never inspects it either.
       let Some(content) = content else { break };
       // Some drivers hand back a buffer larger than one block; the first 128
       // bytes are the block either way. Anything shorter is not usable.
