@@ -300,14 +300,16 @@ mod wmi_edid {
   unsafe fn read_all_blocks(
     services: &IWbemServices,
     in_signature: &IWbemClassObject,
+    instance_name: &str,
     path: &str,
   ) -> Vec<u8> {
     let path = BSTR::from(path);
     let method = BSTR::from("WmiGetMonitorRawEEdidV1Block");
-    let mut edid = Vec::new();
+    let mut edid: Vec<u8> = Vec::new();
 
     for block_id in 0..MAX_EDID_BLOCKS {
       let Ok(input) = in_signature.SpawnInstance(0) else {
+        log::warn!("{instance_name}: could not spawn the method input instance");
         break;
       };
       let mut argument = VARIANT::default();
@@ -316,41 +318,67 @@ mod wmi_edid {
         inner.vt = VT_UI1;
         inner.Anonymous.bVal = block_id;
       }
-      if input.Put(w!("BlockId"), 0, &argument, 0).is_err() {
+      if let Err(e) = input.Put(w!("BlockId"), 0, &argument, 0) {
+        log::warn!("{instance_name}: could not set BlockId {block_id}: {e}");
         break;
       }
 
       // A block id past the last one the driver holds comes back as a failed
-      // call, which is this loop's terminating condition.
+      // call, which is this loop's usual terminating condition.
       let mut output: Option<IWbemClassObject> = None;
-      if services
-        .ExecMethod(
-          &path,
-          &method,
-          WBEM_GENERIC_FLAG_TYPE(0),
-          None,
-          &input,
-          Some(&mut output),
-          None,
-        )
-        .is_err()
-      {
+      if let Err(e) = services.ExecMethod(
+        &path,
+        &method,
+        WBEM_GENERIC_FLAG_TYPE(0),
+        None,
+        &input,
+        Some(&mut output),
+        None,
+      ) {
+        log::info!("{instance_name}: block {block_id} unavailable ({e})");
         break;
       }
-      let Some(output) = output else { break };
-
-      // Documented as 0 on success. Absent on drivers that never fill it in,
-      // which is not by itself a reason to distrust the block.
-      if property(&output, w!("ReturnValue"), variant_u32).is_some_and(|code| code != 0) {
-        break;
-      }
-      let Some(block) = property(&output, w!("BlockContent"), variant_bytes) else {
+      let Some(output) = output else {
+        log::warn!("{instance_name}: block {block_id} returned no output object");
         break;
       };
-      if block.len() != EDID_BLOCK_LEN {
+
+      let status = property(&output, w!("ReturnValue"), variant_u32);
+      let kind = property(&output, w!("BlockType"), variant_u32);
+      let content = property(&output, w!("BlockContent"), variant_bytes);
+      // Mirrors what the equivalent PowerShell prints, so a driver that behaves
+      // unlike the one this was written against can be diagnosed from a log
+      // rather than another build.
+      log::info!(
+        "{instance_name}: block {block_id} ReturnValue={status:?} BlockType={kind:?} len={:?}",
+        content.as_ref().map(|c| c.len())
+      );
+
+      // `ReturnValue` is deliberately *not* a gate. The documentation says 0 on
+      // success, but the `Invoke-CimMethod` loop that this was validated against
+      // ignores it entirely and reads good blocks regardless, so treating a
+      // non-zero value as fatal throws away data that is really there.
+      let Some(content) = content else { break };
+      // Some drivers hand back a buffer larger than one block; the first 128
+      // bytes are the block either way. Anything shorter is not usable.
+      if content.len() < EDID_BLOCK_LEN {
         break;
       }
-      edid.extend_from_slice(&block);
+      let block = &content[..EDID_BLOCK_LEN];
+
+      // Two guards that replace the `ReturnValue` check, for a driver that
+      // answers every block id rather than failing past the last one: an
+      // all-zero buffer is an unfilled out parameter, and a repeat of a block
+      // already read means the driver is echoing rather than enumerating.
+      if block.iter().all(|&b| b == 0) {
+        log::info!("{instance_name}: block {block_id} came back empty, stopping");
+        break;
+      }
+      if edid.chunks_exact(EDID_BLOCK_LEN).any(|seen| seen == block) {
+        log::info!("{instance_name}: block {block_id} repeats an earlier block, stopping");
+        break;
+      }
+      edid.extend_from_slice(block);
     }
 
     edid
@@ -413,16 +441,23 @@ mod wmi_edid {
       .map_err(|e| format!("WmiGetMonitorRawEEdidV1Block is unavailable: {e}"))?;
     let in_signature = in_signature.ok_or("WMI returned no input signature for the EDID method")?;
 
+    // `SELECT *`, not a property list: a property-restricted query returns
+    // partial instances, and the system properties this needs to address an
+    // instance are not guaranteed to survive that.
     let enumerator = services
       .ExecQuery(
         &BSTR::from("WQL"),
-        &BSTR::from("SELECT InstanceName FROM WmiMonitorDescriptorMethods"),
+        &BSTR::from("SELECT * FROM WmiMonitorDescriptorMethods"),
         WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY,
         None,
       )
       .map_err(|e| format!("querying WmiMonitorDescriptorMethods failed: {e}"))?;
 
-    let mut out = HashMap::new();
+    // Drained in full before a single method is invoked. Calling ExecMethod on
+    // the same IWbemServices while a forward-only enumerator is still open is
+    // the one structural difference from the `Get-CimInstance` | `Invoke-CimMethod`
+    // sequence this is known to work as, so it is not worth keeping.
+    let mut targets: Vec<(String, String)> = Vec::new();
     loop {
       let mut batch: [Option<IWbemClassObject>; 1] = [None];
       let mut returned = 0u32;
@@ -433,14 +468,24 @@ mod wmi_edid {
       let Some(object) = batch[0].take() else { break };
 
       let Some(instance_name) = property(&object, w!("InstanceName"), variant_string) else {
+        log::warn!("a WmiMonitorDescriptorMethods instance has no InstanceName");
         continue;
       };
       // ExecMethod addresses the instance by path, not by the object itself.
-      let Some(path) = property(&object, w!("__PATH"), variant_string) else {
+      let path = property(&object, w!("__RELPATH"), variant_string)
+        .or_else(|| property(&object, w!("__PATH"), variant_string));
+      let Some(path) = path else {
+        log::warn!("{instance_name} has neither __RELPATH nor __PATH");
         continue;
       };
+      targets.push((instance_name, path));
+    }
+    drop(enumerator);
+    log::info!("WMI listed {} monitor instance(s)", targets.len());
 
-      let edid = read_all_blocks(&services, &in_signature, &path);
+    let mut out = HashMap::new();
+    for (instance_name, path) in targets {
+      let edid = read_all_blocks(&services, &in_signature, &instance_name, &path);
       // Logged at info so an installed release build still shows it: this line
       // is how you tell a monitor's extension blocks arrived.
       log::info!(
