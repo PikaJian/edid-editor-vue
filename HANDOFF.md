@@ -5,7 +5,7 @@ Written for whoever (or whatever) picks this up cold. Read CLAUDE.md first for r
 Three features are documented, in the order their sections appear:
 
 1. **DisplayID extension block parsing** — §1–§5. Merged; editing still unimplemented.
-2. **Read EDID from a connected display** — §6. Shipped; two platforms still unverified.
+2. **Read EDID from a connected display** — §6. Shipped; macOS and Windows verified on hardware, Linux still never run.
 3. **CI builds and releases the desktop app** — §7. Shipped; `v0.1.0` is published.
 
 ---
@@ -16,7 +16,7 @@ Three features are documented, in the order their sections appear:
 |---|---|
 | Branch | `main` is current. `feat/displayid-parsing` is merged and can be deleted. |
 | PR | [#1](https://github.com/PikaJian/edid-editor-vue/pull/1) — **merged** as `99625de`; the feature commit is `859b491` |
-| Tests | 164 passing (`npm test`), plus 7 Rust (`cd src-tauri && cargo test --lib`, 1 more `#[ignore]`d) |
+| Tests | 164 passing (`npm test`), plus 13 Rust (`cd src-tauri && cargo test --lib`, 1 more `#[ignore]`d) |
 | Release | **v0.1.1** is current — universal macOS `.dmg`, Windows `.msi` + NSIS `-setup.exe`, all built by CI. See §7. [v0.1.0](https://github.com/PikaJian/edid-editor-vue/releases/tag/v0.1.0) is superseded: its Windows build lists every monitor ever attached, fixed in `33ef688`. |
 | Untracked | `edid.bin` in the repo root — a real MSI MAG 272URDF dump used while debugging. Its bytes are already committed as a fixture, so the file itself is deliberately not tracked. |
 
@@ -142,18 +142,63 @@ Flow: `TopNav` → `App.vue: handleReadDisplay()` → `readDisplayEdids()` → R
 |---|---|---|
 | macOS | Walks the whole IORegistry service plane, reading `"EDID"` or `"IODisplayEDID"` on every node | **Verified byte-exact against `ioreg`**, macOS 15.1 arm64 |
 | Linux | `/sys/class/drm/<connector>/edid`, skipping empty files | **Written, never run** |
-| Windows | SetupAPI (`DIGCF_PRESENT`) for *which* monitors, then `SYSTEM\CurrentControlSet\Enum\<instance id>\Device Parameters\EDID` via `winreg` for the bytes | **Verified on real hardware** after `33ef688`. The first implementation was wrong — see below |
+| Windows | SetupAPI (`DIGCF_PRESENT`) for *which* monitors; WMI `WmiGetMonitorRawEEdidV1Block` for the bytes, falling back to `SYSTEM\CurrentControlSet\Enum\<instance id>\Device Parameters\EDID` via `winreg` | **Verified on real hardware** — enumeration after `33ef688`, the WMI byte source on Windows 10 against an Acer ACR0A68 whose registry copy held 1 block and whose panel reports 2 |
 | other | returns `Err` | intentional |
 
 **macOS gotcha, important if you touch this:** the commonly-documented approach (`IODisplayCreateInfoDictionary` / `IODisplayEDID` on `IODisplayConnect` nodes) **does not work on Apple Silicon** — the property is gone. There the blob lives under a plain `"EDID"` key on `IOPortTransportStateDisplayPort` nodes. Rather than hardcode a class name that may shift again, the code walks the entire registry and checks both keys. Slower than a targeted lookup, but the registry is small and this only runs on user action.
 
 **Windows gotcha, and the one bug real hardware has caught so far:** the registry is a cache of *every monitor ever attached*, not a list of attached monitors. `SYSTEM\CurrentControlSet\Enum\DISPLAY` keeps a device node per panel indefinitely — unplugging removes nothing — so the original implementation, which walked that tree, presented the machine's entire display history to a user with one monitor plugged in. Nothing inside those keys reliably marks a device as present. `33ef688` therefore asks SetupAPI which monitors exist (`SetupDiGetClassDevsW(GUID_DEVCLASS_MONITOR, …, DIGCF_PRESENT)`), and uses each returned instance ID to build the registry path the EDID is read from. **If you add another OS, assume its EDID store is a cache until proven otherwise** — macOS and Linux happen to expose live state, and that made this failure mode easy to not think about.
 
-Platform-gated Cargo deps: `core-foundation`/`io-kit-sys`/`libc` on macOS, `winreg` + `windows-sys` (feature `Win32_Devices_DeviceAndDriverInstallation`) on Windows, nothing extra on Linux. `windows-sys` was already in the tree via tauri, so it costs a reference and not a crate.
+**Windows gotcha #2, and the reason the registry is now only a fallback:** `Device Parameters\EDID` is a *cache written by the monitor driver*, and on plenty of machines it holds **only the 128-byte base block** — the CTA-861 and DisplayID extensions the panel actually reports are simply not in it. Reported on Windows 10 against a display whose block 1 exists; the app showed a base block and nothing else. There is no second registry value carrying the rest. The only Windows API that exposes the extension blocks is WMI: `root\WMI`'s `WmiMonitorDescriptorMethods.WmiGetMonitorRawEEdidV1Block(BlockId)` returns one 128-byte block per call, straight from what the driver read over DDC. `wmi_edid::raw_edids_by_instance()` walks blocks `0, 1, 2 …` until the driver refuses one (cap `MAX_EDID_BLOCKS = 8`) and concatenates them. It deliberately does **not** consult byte 126 to decide how many to read, for the same reason `EDID.decode()` ignores it — real EDIDs undercount.
+
+Three things about that path worth knowing before touching it:
+
+- **Neither source is trusted over the other by fiat.** `best_edid()` validates both and keeps whichever is *longer*, so a WMI read that stopped early cannot lose bytes the registry already had. It is pure and unit-tested on any host.
+- **The two APIs name the same monitor differently.** SetupAPI gives `DISPLAY\GSM5B09\5&2a1bd7b&0&UID4353`; WMI's `InstanceName` appends an output index, `…_0`. `normalize_instance_name()` strips a *trailing numeric* suffix (an underscore is legal mid-path) and uppercases. If that matching ever fails the display silently falls back to its truncated registry copy, so both the unmatched-either-way cases `log::warn!`.
+- **WMI runs on its own thread.** It needs an MTA, and the thread Tauri runs commands on belongs to a webview host that already initialised COM as an STA — `CoUninitialize` there would be hostile. `CoInitializeSecurity` is likewise never called (once per process, not ours to spend); only the `IWbemServices` proxy gets a blanket.
+
+Platform-gated Cargo deps: `core-foundation`/`io-kit-sys`/`libc` on macOS, `winreg` + `windows-sys` (feature `Win32_Devices_DeviceAndDriverInstallation`) + `windows` (COM/WMI features) on Windows, nothing extra on Linux. Both `windows` crates were already in the tree via tauri, so they cost a reference and not a crate. `windows-sys` has no COM support at all, which is why the WMI code uses `windows` instead of extending the existing binding.
+
+### What the first working run actually showed
+
+Windows 10, one Acer ACR0A68, the app's own log:
+
+```
+WMI listed 1 monitor instance(s)
+DISPLAY\ACR0A68\5&3064c54d&0&UID41216_0: block 0 ReturnValue=None BlockType=Some(1) len=Some(128)
+DISPLAY\ACR0A68\5&3064c54d&0&UID41216_0: block 1 ReturnValue=None BlockType=Some(255) len=Some(128)
+DISPLAY\ACR0A68\5&3064c54d&0&UID41216_0: block 2 unavailable (WDM specific return code: 2494465 (0x80041001))
+WMI returned 2 block(s) for DISPLAY\ACR0A68\5&3064c54d&0&UID41216_0
+DISPLAY\ACR0A68\5&3064C54D&0&UID41216: using 2 block(s), registry alone had 1
+```
+
+Read that carefully, because it does not say what the commit that produced it guessed:
+
+- **`ReturnValue=None`.** This driver does not populate the out parameter at all. The original code only broke on a *non-zero* value, so that check was never what suppressed the read — but it does confirm that gating on `ReturnValue` would be wrong for at least one real driver.
+- **`len=Some(128)`, exactly.** The original exact-length check was not the cause either. Accepting `>= 128` stays as hardening against a driver that pads, not as a fix for anything observed.
+- So the actual cause was one of the other two changes: the property-restricted `SELECT InstanceName` query (whose partial instances need not carry `__PATH`), or invoking methods while the forward-only enumerator was still open. **Which one has not been isolated** — separating them costs a build-and-install cycle that has not been spent. If either ever looks worth reverting for simplicity, isolate it first.
+- **`0x80041001` is `WBEM_E_FAILED`**, and it is the *normal* terminator: block 2 does not exist, and this is how the driver says so. Do not mistake it for a bug in the log.
+- `BlockType` is `1` for the base block and `255` for the extension. Nothing reads it; it is logged because the PowerShell prints it.
+
+### Testing the Windows path without a Windows dev machine
+
+There is no Windows development machine here — everything is written on a Mac. The loop is:
+
+1. Push the branch. Actions → **Release** → **Run workflow**, picking that branch. `workflow_dispatch` builds both platforms and uploads the bundles as **workflow artifacts** without creating a release (§7).
+2. Download `edid-editor-x86_64-pc-windows-msvc`, install the NSIS `-setup.exe` on the Windows box, run it, **Read EDID from display**.
+3. The verdict is in `LeftNav`: if a CEA-861 or DisplayID section appears, the extension blocks arrived. If not, read the log.
+
+**The log plugin is registered in release builds, not just dev**, precisely because of this loop — a shipped build that finds the wrong thing is otherwise silent. It writes to `%LOCALAPPDATA%\com.pikajian.edid-editor-vue\logs\` on Windows at level `info`, and `platform::collect()` logs one line per display (`using N block(s), registry alone had M`) plus warnings for each way the WMI match can fail. That one line separates "WMI is not working" from "WMI worked and the registry was the truncated one" without another build.
+
+`cargo test --lib -- --ignored --nocapture` remains the fastest probe **if** a Rust toolchain is available on that machine, but it is not required — the installer is enough. Note that CI cannot run it: GitHub's Windows runners have no attached monitor, so it would find zero displays and fail.
+
+### Cross-checking the Windows code from a Mac
+
+`cargo check --target x86_64-pc-windows-msvc` in `src-tauri/` **fails in the build script**, not the code: `tauri-winres` wants `llvm-rc`, which a stock macOS does not have. To type-check `display_edid.rs` itself without installing LLVM, copy it into a throwaway crate whose `[lib] path` points at it, with `serde`/`log` plus the same Windows-gated dependencies, and check that. It compiles the `#[cfg(test)]` module too. This is how the WMI code above was verified; it is worth doing before any tag, because the alternative is finding out from a CI runner.
 
 ### Verifying without native hardware
 
-`dedupe()`'s pure logic has four `cargo test --lib` tests that run anywhere. The real-hardware test is `#[ignore]`d: `cargo test --lib -- --ignored --nocapture` prints what it found — run this first on a new machine, since a failure there localises the bug to `platform::collect()`.
+`dedupe()`, `best_edid()` and `normalize_instance_name()` are pure and have `cargo test --lib` tests that run anywhere — 13 of them, plus 1 ignored. The real-hardware test is `#[ignore]`d: `cargo test --lib -- --ignored --nocapture` prints what it found — run this first on a new machine, since a failure there localises the bug to `platform::collect()`. It prints block count against the byte-126 extension count, which is the line that tells you whether the extension blocks made it through.
 
 The frontend flow was verified with Playwright against `npm run dev` by injecting a fake Tauri runtime before page load:
 
@@ -173,10 +218,11 @@ with **real** EDID arrays from `ioreg -r -c IOPortTransportStateDisplayPort -w0`
 
 ### Open items
 
-1. **Linux has still never been run.** Windows is done — the present-vs-ever-attached bug was found on real hardware and the `DIGCF_PRESENT` fix confirmed there, shipped in v0.1.1. Two things that fix does not address, neither observed: whether a *value* goes stale after swapping a different panel onto the same port (a swap should produce a new instance ID, so probably moot), and hot-plug, which is item 2. Linux remains written against documented behavior with zero runtime verification: confirm `/sys/class/drm/*/edid` is readable without root on the target distro and that disconnected connectors yield the empty files the `!bytes.is_empty()` guard expects. `cargo test --lib -- --ignored --nocapture` is the fastest probe, since a failure there localises the bug to `platform::collect()`. Note CI does not build Linux at all (§7), so there is no installer to test with.
-2. **Hot-plug / stale state.** The list is a one-shot `invoke()` per menu click. Unplugging between opening the picker and choosing an entry loads the cached bytes rather than erroring. Expected today, not a bug; a "Refresh" button in `DisplayPickerDialog.vue` would fix it if users hit it.
-3. **Packaged-app permissions untested.** IORegistry reads needed no privacy consent in dev, but the signed `.app` under hardened runtime has not been tried. If the bundle finds zero displays where `tauri dev` finds them, look at entitlements/Info.plist first.
-4. **Picker keyboard nav** is native `<button>` focus order only. Fine now; revisit if the dialog grows.
+1. **The WMI EDID path has been run on exactly one machine.** Windows 10, Acer ACR0A68, one monitor: `using 2 block(s), registry alone had 1`. Everything else about it is still inference from one driver — see *What the first working run actually showed* below for which of its defences are proven and which are speculative. Untested sub-cases: a driver that answers *every* `BlockId` (the `MAX_EDID_BLOCKS = 8` cap bounds it, but the tail would be junk), and displays with no WMI monitor provider at all, such as some virtual/RDP monitors — those keep the registry fallback by design, which is why WMI was not made the enumeration source.
+2. **Linux has still never been run.** Windows enumeration is done — the present-vs-ever-attached bug was found on real hardware and the `DIGCF_PRESENT` fix confirmed there, shipped in v0.1.1. Two things that fix does not address, neither observed: whether a *value* goes stale after swapping a different panel onto the same port (a swap should produce a new instance ID, so probably moot), and hot-plug, which is item 3. Linux remains written against documented behavior with zero runtime verification: confirm `/sys/class/drm/*/edid` is readable without root on the target distro and that disconnected connectors yield the empty files the `!bytes.is_empty()` guard expects. `cargo test --lib -- --ignored --nocapture` is the fastest probe, since a failure there localises the bug to `platform::collect()`. Note CI does not build Linux at all (§7), so there is no installer to test with.
+3. **Hot-plug / stale state.** The list is a one-shot `invoke()` per menu click. Unplugging between opening the picker and choosing an entry loads the cached bytes rather than erroring. Expected today, not a bug; a "Refresh" button in `DisplayPickerDialog.vue` would fix it if users hit it.
+4. **Packaged-app permissions untested.** IORegistry reads needed no privacy consent in dev, but the signed `.app` under hardened runtime has not been tried. If the bundle finds zero displays where `tauri dev` finds them, look at entitlements/Info.plist first.
+5. **Picker keyboard nav** is native `<button>` focus order only. Fine now; revisit if the dialog grows.
 
 ---
 
