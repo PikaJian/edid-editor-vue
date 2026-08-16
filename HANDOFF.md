@@ -246,7 +246,9 @@ git tag -a v0.1.0 -m "..."
 git push origin v0.1.0
 ```
 
-**Write the tag message as if it were the release notes, because it is.** The body of the annotated tag message becomes the release summary, followed by a generated `### Changes` list (`git log --no-merges` over the range since the previous tag, so the conventional-commit subjects carry it), a compare link, and `.github/release-notes-footer.md` for the download/unsigned boilerplate. This is why checkout uses `fetch-depth: 0` — a shallow clone has neither the range nor the tag object. A lightweight tag still works, it just contributes no summary.
+**Write the tag message as if it were the release notes, because it is.** The whole annotated tag message becomes the release summary, followed by a generated `### Changes` list (`git log --no-merges` over the range since the previous tag, so the conventional-commit subjects carry it), a compare link, and `.github/release-notes-footer.md` for the download/unsigned boilerplate. This is why checkout uses `fetch-depth: 0` — a shallow clone has neither the range nor the tag object. A lightweight tag still works, it just contributes no summary.
+
+The workflow reads `%(contents)`, and the reason is a bug v0.1.2 shipped with: it used to read `%(contents:body)`, but **git treats a tag message's first line as a subject and `body` omits it**, so the single sentence that summarised the release vanished from the notes and had to be pasted back by hand before publishing. The failure is quiet — the notes still read plausibly, just missing their lead. Fixed in the workflow, not by a convention nobody would remember.
 
 Both runners build, then attach their bundles to a **draft** release. Publish it by hand (`gh release edit vX.Y.Z --draft=false`, plus `-R`). Draft is deliberate: the two jobs finish minutes apart, and a published release would be visible while still half-empty. `releaseDraft: false` in the workflow makes it automatic if that trade is ever worth making.
 

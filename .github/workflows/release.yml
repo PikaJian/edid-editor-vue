@@ -73,11 +73,16 @@ jobs:
           previous=$(git describe --tags --abbrev=0 "$tag^" 2>/dev/null || true)
           {
             echo 'body<<RELEASE_NOTES_EOF'
-            # Body of the annotated tag message — the human summary of the release.
-            # Guarded because `%(contents:body)` on a lightweight tag falls through
-            # to the commit message, which is not release notes.
+            # The annotated tag message — the human summary of the release.
+            # `%(contents)`, not `%(contents:body)`: git treats a tag message's
+            # first line as its subject and `body` omits it, which silently ate
+            # the one-sentence summary out of v0.1.2's notes. `%(contents)` is
+            # the message verbatim. It would also carry the PGP block on a
+            # signed tag, which nothing here produces.
+            # Guarded because on a lightweight tag this falls through to the
+            # commit message, which is not release notes.
             if [ "$(git cat-file -t "$tag")" = tag ]; then
-              git tag -l --format='%(contents:body)' "$tag"
+              git tag -l --format='%(contents)' "$tag"
             fi
             echo '### Changes'
             echo
