@@ -382,6 +382,17 @@ mod wmi_edid {
       edid.extend_from_slice(block);
     }
 
+    // Every `break` above happens before the append, so a full set of blocks
+    // means the loop ended by running out of ids rather than by any of the
+    // driver's own signals — i.e. the cap truncated a real read, or a driver is
+    // answering every id with distinct junk. Either way the bytes look like a
+    // complete EDID, so say so here rather than let the cap pass in silence.
+    if edid.len() == MAX_EDID_BLOCKS as usize * EDID_BLOCK_LEN {
+      log::warn!(
+        "{instance_name}: stopped at the {MAX_EDID_BLOCKS}-block cap; the EDID may be truncated"
+      );
+    }
+
     edid
   }
 
@@ -462,7 +473,19 @@ mod wmi_edid {
     loop {
       let mut batch: [Option<IWbemClassObject>; 1] = [None];
       let mut returned = 0u32;
-      let _ = enumerator.Next(WBEM_INFINITE as i32, &mut batch, &mut returned);
+      // Returns an HRESULT rather than a Result because WBEM_S_FALSE — the end of
+      // the enumeration — is a success code. A real failure also leaves
+      // `returned` at 0, so without this it would be indistinguishable from
+      // having listed the last monitor, and would quietly cost a display its
+      // extension blocks.
+      let status = enumerator.Next(WBEM_INFINITE as i32, &mut batch, &mut returned);
+      if status.is_err() {
+        log::warn!(
+          "enumerating monitor instances failed after {} instance(s): {status:?}",
+          targets.len()
+        );
+        break;
+      }
       if returned == 0 {
         break;
       }
