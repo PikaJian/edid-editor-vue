@@ -2,9 +2,14 @@
 
 Client side EDID Viewer and editor
 
+> This repository is a fork of [thyge/edid-editor](https://github.com/thyge/edid-editor)
+> (MIT), which is where the Vue app and the `edidts` package come from — its history and
+> copyright are intact, see [LICENSE](LICENSE). Added here: a Tauri desktop build that
+> reads EDIDs off attached monitors (`src-tauri/`), and DisplayID extension block parsing.
+
 The project is a continuation of [goedid](https://github.com/thyge/goedid)
 
-The project is implimented as a vue app but all EDID decoding and editing is contained in the [edidts](https://github.com/thyge/edid-editor/tree/main/src/edidts) directory.
+The project is implimented as a vue app but all EDID decoding and editing is contained in the [edidts](packages/edidts) directory.
 ##  Goals:
 * Being able to visualise EDID, CEA and DisplayID
 * Being able to edit key aspects of EDID CEA and DisplayID
