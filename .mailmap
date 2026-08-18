@@ -1,0 +1,15 @@
+# Collapses the several identities each author has committed under, so
+# `git shortlog`, `git log` and `git blame` show one entry per person.
+# Display only: no history is rewritten, and GitHub ignores this file — it
+# already attributes every address below to the right account.
+
+# 29 commits carry a GitHub noreply address, the result of the 2026-08-17
+# history rewrite that removed a private email (see HANDOFF.md).
+PikaJian <ff12312323@gmail.com> <8335844+PikaJian@users.noreply.github.com>
+
+# Upstream's commits were authored from several machines whose hostname ended
+# up in the address. The gmail one is what he commits under publicly.
+Thyge Haarberg <thygehaarberg@gmail.com>
+Thyge Haarberg <thygehaarberg@gmail.com> <thygehaarberg@TMBP.local>
+Thyge Haarberg <thygehaarberg@gmail.com> <thygehaarberg@TMBP.home>
+Thyge Haarberg <thygehaarberg@gmail.com> <thygehaarberg@TMBP.lan>
