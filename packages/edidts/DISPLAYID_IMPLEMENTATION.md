@@ -1,5 +1,33 @@
 # DisplayID v2.0 Implementation Plan and Log
 
+> **Completed and superseded — kept as a record, not as a work list.**
+>
+> Everything in the Task Checklist below shipped in PR #1 (feature commit
+> `2832563`). Read **HANDOFF.md §1–§5** and **CLAUDE.md → DisplayID specifics**
+> for what the code actually does today; this file is the original plan plus the
+> log of how it was built, and the plan text is deliberately *not* rewritten to
+> match the outcome.
+>
+> Where the result diverged from the plan below:
+>
+> - **Structure v1.x is supported too**, not just v2.x. `section.ts` accepts a
+>   version nibble of `1` or `2`, and `legacy.ts` handles the `00h`–`1Fh` tag
+>   space that v2 reserves — that is what many shipping monitors actually use.
+>   Only legacy Type I (`03h`) is field-decoded; the rest keep raw payloads,
+>   because the v1.3 spec is not available here.
+> - **The spec used was v2.1a, not v2.0.** The *document* revision moved; the
+>   structure version byte stays `0x20`.
+> - **Four blocks were implemented that the plan never listed**: Type X
+>   Formula-based Timing (`2Ah`), Adaptive-Sync (`2Bh`), Brightness Luminance
+>   Range (`2Eh`), and legacy Type I. ARVR_HMD (`2Ch`) and ARVR_Layer (`2Dh`)
+>   are named but deliberately left raw — spec §4.10 forbids them in EDID
+>   Extension Sections, which is all this app reads.
+> - **The Vue UI was not out of scope after all.** Read-only DisplayID panels
+>   shipped in the same PR. Editing is still unimplemented.
+> - **Tests live in four files**, not the single `displayid.test.ts` planned:
+>   `displayid.test.ts`, `displayid-blocks.test.ts`, `displayid-extension.test.ts`
+>   and `displayid-v1.test.ts`.
+
 ## Scope
 
 This work adds DisplayID v2.0 support to the `edidts` library only. Vue UI integration is out of scope for this milestone.
@@ -65,16 +93,28 @@ Each section gets decode, encode, and round-trip tests. The first tests cover:
 - [x] Section 2: DisplayID section header, declared length, checksum, fixed-length fill handling.
 - [x] Section 3: Generic data block header parsing, unknown block preservation, reserved tag warnings.
 - [x] Section 4.1: Product Identification block.
-- [ ] Section 4.2: Display Parameters block.
-- [ ] Section 4.3: Video Timing Mode blocks, starting with Type VII Detailed Timing.
-- [ ] Section 4.4: Dynamic Video Timing Range Limits block.
-- [ ] Section 4.5: Display Interface Features block.
-- [ ] Section 4.6: Stereo Display Interface block.
-- [ ] Section 4.7: Tiled Display Topology block.
-- [ ] Section 4.8: ContainerID block.
-- [ ] Section 4.9: Vendor-specific block.
-- [ ] Section 4.10: CTA DisplayID data block.
-- [ ] E-EDID integration: route extension tag `0x70` to the DisplayID decoder once the section decoder is stable.
+- [x] Section 4.2: Display Parameters block.
+- [x] Section 4.3: Video Timing Mode blocks, starting with Type VII Detailed Timing.
+- [x] Section 4.4: Dynamic Video Timing Range Limits block.
+- [x] Section 4.5: Display Interface Features block.
+- [x] Section 4.6: Stereo Display Interface block.
+- [x] Section 4.7: Tiled Display Topology block.
+- [x] Section 4.8: ContainerID block.
+- [x] Section 4.9: Vendor-specific block.
+- [x] Section 4.10: CTA DisplayID data block.
+- [x] E-EDID integration: route extension tag `0x70` to the DisplayID decoder once the section decoder is stable.
+
+Beyond the original plan, and also done:
+
+- [x] Type X Formula-based Timing block, tag `0x2a`.
+- [x] Adaptive-Sync block, tag `0x2b`.
+- [x] Brightness Luminance Range block, tag `0x2e`.
+- [x] Structure v1.x sections, including field-decoded legacy Type I Detailed Timing, tag `0x03`.
+
+Still open, and tracked in HANDOFF.md §5 rather than here:
+
+- [ ] Editing DisplayID fields from the UI. The encoders exist and round-trip, so this is mostly UI work.
+- [ ] Legacy v1.x blocks other than Type I. Blocked on the DisplayID v1.3 specification, which is not in this repo.
 
 ## Progress Log
 
