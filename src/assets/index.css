@@ -42,6 +42,12 @@
 }
 
 :root {
+  /* Tells the browser which palette to draw UA-rendered chrome with: the
+     popup list of a native <select>, scrollbars, and form control defaults.
+     Those are painted by the OS, not by anything below, so without this they
+     stay light while the app goes dark — a native select's options then
+     inherit the near-white --foreground onto a white popup and vanish. */
+  color-scheme: light;
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -77,6 +83,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
