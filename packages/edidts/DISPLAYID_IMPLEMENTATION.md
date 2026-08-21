@@ -80,7 +80,7 @@ Each section gets decode, encode, and round-trip tests. The first tests cover:
 
 ### 2026-05-28
 
-- Created isolated worktree at `/Users/thygehaarberg/Documents/edid-editor/.worktrees/displayid-edidts`.
+- Created isolated worktree at `.worktrees/displayid-edidts`.
 - Created branch `displayid-edidts`.
 - Ran baseline verification with `npm test`.
 - Baseline result: 6 test files passed, 70 tests passed.
