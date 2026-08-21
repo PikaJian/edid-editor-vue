@@ -117,6 +117,23 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* Native <select> and its options, deliberately unlayered so these win over
+   the `bg-transparent dark:bg-input/30` utilities the selectClass in the
+   components applies. The popup list is painted by the browser, and on Windows
+   Chromium paints it from the control's own background-color. In dark mode
+   that resolved to --input at 30% — about 4% white, effectively transparent —
+   so the list came out light while its options inherited the near-white
+   --foreground and disappeared. An opaque surface is the only thing that fixes
+   it; color-scheme above is not enough on its own.
+
+   --popover is the same value as --card, which is what these controls sit on,
+   so the closed control looks the same as before in both themes. */
+select,
+option {
+  background-color: var(--popover);
+  color: var(--popover-foreground);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
