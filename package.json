@@ -15,7 +15,6 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "deploy": "bash deploy.sh",
     "pretauri": "npm run build --workspace=edidts",
     "tauri": "tauri"
   },
@@ -43,7 +42,6 @@
     "@types/node": "^25.9.1",
     "@vitejs/plugin-vue": "^6.0.1",
     "@vue/tsconfig": "^0.9.1",
-    "gh-pages": "^6.3.0",
     "typescript": "^6.0.3",
     "vite": "^8.0.14",
     "vitest": "^4.1.7",

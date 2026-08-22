@@ -4,7 +4,7 @@ import vue from '@vitejs/plugin-vue'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  base: process.env.TAURI_ENV_PLATFORM ? './' : '/edid-editor/',
+  base: process.env.TAURI_ENV_PLATFORM ? './' : '/',
   plugins: [vue(), tailwindcss()],
   resolve: {
     alias: {
