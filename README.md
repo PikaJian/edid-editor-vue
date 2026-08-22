@@ -2,6 +2,13 @@
 
 Client side EDID Viewer and editor
 
+**[Open it in your browser](https://pikajian.github.io/edid-editor-vue/)** — nothing to install,
+and nothing leaves your machine: every byte is decoded client side.
+
+The [desktop app](https://github.com/PikaJian/edid-editor-vue/releases/latest) adds the one thing a
+browser cannot do — reading EDIDs off the monitors physically attached to your machine. It is not
+code-signed, so if you only need to open an `.bin` dump, the link above saves you the security prompt.
+
 > This repository is a fork of [thyge/edid-editor](https://github.com/thyge/edid-editor)
 > (MIT), which is where the Vue app and the `edidts` package come from — its history and
 > copyright are intact, see [LICENSE](LICENSE). Added here: a Tauri desktop build that

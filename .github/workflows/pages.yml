@@ -1,0 +1,58 @@
+name: Pages
+
+# Publishes the web build to GitHub Pages on every push to main. The desktop
+# app is unaffected: it is built by release.yml and loads its assets from a
+# relative base, which vite.config.ts selects on TAURI_ENV_PLATFORM.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time, and never cancel one midway — a half-finished
+# deploy would leave the live site inconsistent.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/configure-pages@v5
+
+      - run: npm ci
+
+      # packages/edidts/dist is gitignored and `npm run build` has no prebuild
+      # hook, so the workspace package must be built explicitly here or the
+      # frontend build dies on an unresolved `edidts` import. Same footgun as
+      # release.yml, documented in CLAUDE.md.
+      - name: Build edidts
+        run: npm run build --workspace=edidts
+
+      - run: npm run build
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

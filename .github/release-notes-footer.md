@@ -1,5 +1,9 @@
 ### Downloads
 
+Only need to open or edit an EDID dump? **[Use the web version](https://pikajian.github.io/edid-editor-vue/)**
+— no download, no security prompt. The desktop builds below exist for reading EDIDs off attached monitors.
+
+
 - **macOS**: `.dmg` (universal — Intel and Apple Silicon)
 - **Windows**: `.msi` or the NSIS `-setup.exe`
 

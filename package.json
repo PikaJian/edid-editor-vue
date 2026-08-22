@@ -15,7 +15,6 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "deploy": "bash deploy.sh",
     "pretauri": "npm run build --workspace=edidts",
     "tauri": "tauri"
   },
