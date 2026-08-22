@@ -24,6 +24,10 @@ Three features are documented, in the order their sections appear:
 
 `origin` is `PikaJian/edid-editor-vue`, and it is now the **only** remote — there is no `upstream`. The code descends from [thyge/edid-editor](https://github.com/thyge/edid-editor), which README states in prose, but GitHub records no fork relationship (`isFork: false`, `parent: null`) and nothing has ever been pushed back. Two things follow. **`gh` resolves this working copy to `PikaJian/edid-editor-vue` on its own, so `-R` is not needed** — earlier revisions of this document required it on every `gh` command, which was true only while an `upstream` remote existed for `gh` to pick instead. And Actions needed no manual enabling, since that is the real-fork case.
 
+## Open items that belong to no feature
+
+1. **The 22 native `<select>` elements should become a shadcn-vue `Select`.** They are the app's only controls whose popup is drawn by the browser rather than by our own DOM, and that cost two Windows build-and-install cycles when the dark theme made them unreadable (CLAUDE.md has the mechanism). The current fix — an opaque `--popover` on `select, option`, unlayered — works and is confirmed on hardware, but it is a workaround for UA behaviour we do not control, and the next renderer difference lands in the same place. `Select` is not installed; add it with `npx shadcn-vue@latest add select` and revert the unrelated dependency bumps the CLI makes. Touches 10 components, so it is a deliberate piece of work rather than a drive-by.
+
 ---
 
 # 1. DisplayID parsing — goal
