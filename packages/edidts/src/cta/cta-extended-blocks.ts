@@ -22,11 +22,27 @@ export type ExtendedTagCode =
   | 0x13  // Room Configuration Data Block
   | 0x14  // Speaker Location Data Block
   | 0x20  // InfoFrame Data Block
+  | 0x78  // HDMI Forum EDID Extension Override Data Block (HF-EEODB)
   | number;
 
 export interface ExtendedDataBlock extends CEADataBlock {
   tag: 0x07;
   extendedTag: ExtendedTagCode;
+}
+
+/**
+ * HDMI Forum EDID Extension Override Data Block (Extended Tag 0x78)
+ *
+ * Defined by HDMI 2.1 section 10.3.6. An EDID with more than one extension
+ * block sets base block byte 126 to 1 for the benefit of sources that only
+ * read two blocks, and carries the real count here instead. When this block is
+ * present it is the authoritative extension count, and it shall be the first
+ * data block of the first CTA extension.
+ */
+export interface HfEeodbDataBlock extends ExtendedDataBlock {
+  extendedTag: 0x78;
+  /** Total number of EDID extension blocks that follow the base block. */
+  extensionBlockCount: number;
 }
 
 /**
@@ -193,6 +209,7 @@ export type CTAExtendedDataBlock =
   | RoomConfigurationDataBlock
   | SpeakerLocationDataBlock
   | InfoFrameDataBlock
+  | HfEeodbDataBlock
   | ExtendedDataBlock;
 
 /**
@@ -229,6 +246,8 @@ export function decodeExtendedDataBlock(blockData: Uint8Array): CTAExtendedDataB
       return decodeYCbCr420CapabilityMapBlock(base, payload);
     case 0x01:
       return decodeVendorSpecificVideoBlock(base, payload);
+    case 0x78:
+      return decodeHfEeodbBlock(base, payload);
     case 0x11:
       return decodeVendorSpecificAudioBlock(base, payload);
     case 0x13:
@@ -488,6 +507,18 @@ function decodeInfoFrameBlock(base: ExtendedDataBlock, payload: Uint8Array): Inf
 /**
  * Encode an Extended Tag Data Block to bytes
  */
+function decodeHfEeodbBlock(base: ExtendedDataBlock, payload: Uint8Array): HfEeodbDataBlock {
+  return {
+    ...base,
+    extendedTag: 0x78,
+    extensionBlockCount: payload[0] ?? 0,
+  };
+}
+
+function encodeHfEeodbBlock(block: HfEeodbDataBlock): Uint8Array {
+  return new Uint8Array([0x78, block.extensionBlockCount & 0xff]);
+}
+
 export function encodeExtendedDataBlock(block: CTAExtendedDataBlock): Uint8Array {
   switch (block.extendedTag) {
     case 0x00:
@@ -500,6 +531,8 @@ export function encodeExtendedDataBlock(block: CTAExtendedDataBlock): Uint8Array
       return encodeYCbCr420VideoBlock(block as YCbCr420VideoDataBlock);
     case 0x0F:
       return encodeYCbCr420CapabilityMapBlock(block as YCbCr420CapabilityMapDataBlock);
+    case 0x78:
+      return encodeHfEeodbBlock(block as HfEeodbDataBlock);
     default:
       // Return original data for unhandled types
       return block.data;

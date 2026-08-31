@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { EDID } from '../src/edid'
+import { checksum8 } from '../src/common'
 import {
   DisplayIdDataBlockTag,
   displayIdBlockName,
@@ -24,11 +25,27 @@ function refreshRate(timing: {
 describe('DisplayID v1.2 extension on a real monitor EDID', () => {
   const edid = new EDID(MSI_MAG272URDF_DISPLAYID_V1)
 
-  it('decodes every extension block present even when byte 126 undercounts them', () => {
-    expect(edid.extensions).toBe(1) // what the base block claims
-    expect(edid.extensionBlocks).toHaveLength(2) // what the file actually holds
-    expect(edid.extensionCountMismatch).toBe(true)
+  it('takes the extension count from the HF-EEODB rather than byte 126', () => {
+    // Byte 126 is pinned at 1 on purpose so that sources reading only two
+    // blocks still see a consistent EDID; the real count lives in the
+    // HF-EEODB in the CTA extension (HDMI 2.1 section 10.3.6).
+    expect(edid.extensions).toBe(1)
+    expect(edid.hfEeodbCount).toBe(2)
+    expect(edid.extensionBlocks).toHaveLength(2)
     expect(edid.extensionBlocks.map(b => b.tag)).toEqual([0x02, 0x70])
+
+    // The override explains byte 126, so this is not a malformed EDID.
+    expect(edid.extensionCountMismatch).toBe(false)
+  })
+
+  it('decodes the HF-EEODB as the first CTA data block', () => {
+    const cea = edid.ceaExtension!
+    const first = cea.dataBlocks[0] as { tag: number; extendedTag?: number; extensionBlockCount?: number }
+
+    // HDMI 2.1 requires it to come first.
+    expect(first.tag).toBe(0x07)
+    expect(first.extendedTag).toBe(0x78)
+    expect(first.extensionBlockCount).toBe(2)
   })
 
   it('parses the v1.2 section rather than rejecting it as non-v2', () => {
@@ -76,9 +93,28 @@ describe('DisplayID v1.2 extension on a real monitor EDID', () => {
     )
   })
 
-  it('writes the corrected extension count when re-encoding', () => {
+  it('keeps byte 126 at 1 when re-encoding, as the HF-EEODB requires', () => {
     const encoded = edid.encode()
-    expect(encoded[126]).toBe(2)
-    expect(new EDID(encoded).extensionCountMismatch).toBe(false)
+
+    // Writing the real count here would break HF-EEODB conformance.
+    expect(encoded[126]).toBe(1)
+
+    const reparsed = new EDID(encoded)
+    expect(reparsed.hfEeodbCount).toBe(2)
+    expect(reparsed.extensionBlocks).toHaveLength(2)
+    expect(reparsed.extensionCountMismatch).toBe(false)
+  })
+
+  it('still flags a genuine mismatch that no HF-EEODB explains', () => {
+    // Same EDID with the HF-EEODB's count changed to 3, which nothing backs up.
+    const tampered = new Uint8Array(MSI_MAG272URDF_DISPLAYID_V1)
+    tampered[134] = 3
+    tampered[255] = 0
+    tampered[255] = checksum8(tampered.slice(128, 256))
+
+    const broken = new EDID(tampered)
+    expect(broken.hfEeodbCount).toBe(3)
+    expect(broken.extensionBlocks).toHaveLength(2)
+    expect(broken.extensionCountMismatch).toBe(true)
   })
 })

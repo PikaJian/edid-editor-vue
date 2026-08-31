@@ -16,7 +16,7 @@ Three features are documented, in the order their sections appear:
 |---|---|
 | Branch | `main` only — every feature branch described here is merged and deleted. |
 | PR | [#1](https://github.com/PikaJian/edid-editor-vue/pull/1) — **merged** as `763168a`; the feature commit is `2832563`. [#2](https://github.com/PikaJian/edid-editor-vue/pull/2) — **merged** as `53a6fa2`; Windows extension blocks via WMI, commits `871f0e0`/`f0f0af9`/`ca88bf5` |
-| Tests | 164 passing (`npm test`), plus 13 Rust (`cd src-tauri && cargo test --lib`, 1 more `#[ignore]`d) |
+| Tests | 166 passing (`npm test`), plus 13 Rust (`cd src-tauri && cargo test --lib`, 1 more `#[ignore]`d) |
 | Release | [v0.1.2](https://github.com/PikaJian/edid-editor-vue/releases/tag/v0.1.2) is current — the Windows extension-block fix (#2). `main` is ahead of that tag and **does now carry an unreleased user-facing fix**: dark-mode native `<select>` popups were unreadable on Windows (`9e0d7dc`, `ab483cd`, confirmed fixed on hardware). Worth a v0.1.3. Older releases are superseded and say so: v0.1.0's Windows build lists every monitor ever attached (`37cb884`), v0.1.1's returns only base blocks (#2). |
 | Untracked | `edid.bin` in the repo root — a real MSI MAG 272URDF dump used while debugging. Its bytes are already committed as a fixture, so the file itself is deliberately not tracked. |
 
@@ -42,7 +42,9 @@ All three had to be fixed; any one of them alone would still have produced an em
 
 1. **Extension tag `0x70` was never routed.** `ExtensionBlockParser.decode()` handled `0x02`, `0x10` and `0xF0` only; DisplayID fell through to the generic branch. The `displayid/` module already existed in the package and **was never called by anything**. If a future extension type looks "implemented but dead", check the dispatch switch first.
 
-2. **The extension count byte was trusted.** `EDID.decode()` looped `i < bytes[126]`. The MSI dump declares **1** extension while carrying **2** (CTA + DisplayID), all three blocks checksum-valid, so the DisplayID block was never even read. Now every complete 128-byte block present is decoded and the disagreement surfaces as `EDID.extensionCountMismatch`.
+2. **The extension count byte was trusted.** `EDID.decode()` looped `i < bytes[126]`. The MSI dump has byte 126 = **1** while carrying **2** extension blocks (CTA + DisplayID), all three checksum-valid, so the DisplayID block was never even read. Now every complete 128-byte block present is decoded.
+
+   This was initially — and wrongly — written up as a stale/malformed count. It is neither: the EDID carries an **HF-EEODB** (HDMI 2.1 §10.3.6, extended tag `0x78`, first data block of the CTA extension) declaring 2, and byte 126 = 1 is exactly what that spec mandates so that two-block-only sources stay happy. See §3a.
 
 3. **No UI existed.** `LeftNav` rendered a disabled, greyed-out "DisplayID" button and `App.vue` had no view to route to.
 
@@ -74,16 +76,23 @@ The format traps that cost time (minus-one encoding, per-type pixel clock units,
 ### Wiring and UI
 
 - `cta/extension-block.ts` — `DisplayIDExtensionBlock` (tag `0x70`), decode/encode cases. The section occupies bytes 1–126 of the extension; a section that fails to parse is reported via `sectionError` instead of throwing, so one bad block cannot make a whole EDID unreadable.
-- `edid/index.ts` — `EDID.displayIdExtensions` getter, all-blocks-present decoding, `extensionCountMismatch`.
+- `edid/index.ts` — `EDID.displayIdExtensions` getter, all-blocks-present decoding, `hfEeodbCount`, `extensionCountMismatch`.
 - `src/components/displayid/` — 8 read-only panels. `DisplayIDField.vue` is the shared label/value row.
 - `src/lib/displayIdLabels.ts` — presentation-layer labels for the spec's enumerations, kept out of the decoder so the model stays numeric and faithful to the bytes.
 - `LeftNav.vue` — DisplayID children derived from the blocks actually present, so a monitor with one block gets one entry.
 - `byteRanges.ts` — per-block hex highlighting, walking the encoded bytes.
-- `App.vue` — an amber warning banner when `extensionCountMismatch` is set.
+- `App.vue` — an amber warning banner when `extensionCountMismatch` is set, worded to name the HF-EEODB when one is present.
+- `cta/cta-extended-blocks.ts` — HF-EEODB (`0x78`) decode/encode; `CEAOverview.vue` shows the count.
 
-### Behaviour change worth knowing
+## 3a. HF-EEODB — the reason byte 126 reads 1
 
-Re-encoding an EDID whose byte 126 was wrong **writes the corrected count**, which also changes the base block checksum. Saving such a file does not reproduce the input bytes. This is intentional and called out in the PR, but it is the one place where "load then save" is not a no-op.
+**Do not "correct" byte 126.** An earlier revision of this work treated `byte 126 != blocks present` as a malformed EDID, warned about it, and rewrote byte 126 to the real count on encode. That was wrong and actively corrupting: for an EDID using the HDMI Forum override, byte 126 **shall** be 1.
+
+- `getHfEeodbCount()` in `cta/extension-block.ts` returns the override, or null.
+- When it is non-null it is the authoritative extension count, and `encode()` writes byte 126 = 1.
+- `extensionCountMismatch` now means only "the count nobody overrode still disagrees with reality" — e.g. an EEODB claiming 3 when 2 blocks exist.
+
+The clue is easy to miss because the block is tiny and sits first: `e2 78 02` at CTA offset 4 — extended tag `0x78`, payload length 2, count 2.
 
 ## 4. The v1.x discovery — and what it implies
 
@@ -97,11 +106,11 @@ Incidentally this explains what the block is *for*: those three timings (120 / 1
 
 ## 5. Testing
 
-`npm test` → 164 passing, in four groups:
+`npm test` → 166 passing, in four groups:
 
 - **`displayid-blocks.test.ts`** — per-block decode plus byte-for-byte round trip. Includes the spec's **Appendix A worked example**, checked against the interpretations the PDF itself prints (chromaticity 0.675/0.320, 400 cd/m², gamma 2.2, three timings).
 - **`displayid-extension.test.ts`** — the tag `0x70` path end to end, malformed-section reporting, and fixed-length repadding.
-- **`displayid-v1.test.ts`** — the real MSI dump: undercounted extensions, v1.2 acceptance, Type I refresh rates, round trip, corrected count on re-encode.
+- **`displayid-v1.test.ts`** — the real MSI dump: HF-EEODB as the source of the extension count, byte 126 preserved at 1 on re-encode, a tampered EEODB still flagged as a genuine mismatch, v1.2 acceptance, Type I refresh rates, round trip.
 - **`src/lib/byteRanges.displayid.test.ts`** — hex highlight ranges.
 
 Fixtures live in `packages/edidts/tests/fixtures.ts`: `DISPLAYID_V2_EXTENSION` (synthetic v2.0, 4K144-shaped) and `MSI_MAG272URDF_DISPLAYID_V1` (the real dump, verified byte-identical to `edid.bin`). `testedids.test.ts` auto-collects both and round-trips them.
@@ -155,7 +164,7 @@ Flow: `TopNav` → `App.vue: handleReadDisplay()` → `readDisplayEdids()` → R
 
 **Windows gotcha, and the one bug real hardware has caught so far:** the registry is a cache of *every monitor ever attached*, not a list of attached monitors. `SYSTEM\CurrentControlSet\Enum\DISPLAY` keeps a device node per panel indefinitely — unplugging removes nothing — so the original implementation, which walked that tree, presented the machine's entire display history to a user with one monitor plugged in. Nothing inside those keys reliably marks a device as present. `37cb884` therefore asks SetupAPI which monitors exist (`SetupDiGetClassDevsW(GUID_DEVCLASS_MONITOR, …, DIGCF_PRESENT)`), and uses each returned instance ID to build the registry path the EDID is read from. **If you add another OS, assume its EDID store is a cache until proven otherwise** — macOS and Linux happen to expose live state, and that made this failure mode easy to not think about.
 
-**Windows gotcha #2, and the reason the registry is now only a fallback:** `Device Parameters\EDID` is a *cache written by the monitor driver*, and on plenty of machines it holds **only the 128-byte base block** — the CTA-861 and DisplayID extensions the panel actually reports are simply not in it. Reported on Windows 10 against a display whose block 1 exists; the app showed a base block and nothing else. There is no second registry value carrying the rest. The only Windows API that exposes the extension blocks is WMI: `root\WMI`'s `WmiMonitorDescriptorMethods.WmiGetMonitorRawEEdidV1Block(BlockId)` returns one 128-byte block per call, straight from what the driver read over DDC. `wmi_edid::raw_edids_by_instance()` walks blocks `0, 1, 2 …` until the driver refuses one (cap `MAX_EDID_BLOCKS = 8`) and concatenates them. It deliberately does **not** consult byte 126 to decide how many to read, for the same reason `EDID.decode()` ignores it — real EDIDs undercount.
+**Windows gotcha #2, and the reason the registry is now only a fallback:** `Device Parameters\EDID` is a *cache written by the monitor driver*, and on plenty of machines it holds **only the 128-byte base block** — the CTA-861 and DisplayID extensions the panel actually reports are simply not in it. Reported on Windows 10 against a display whose block 1 exists; the app showed a base block and nothing else. There is no second registry value carrying the rest. The only Windows API that exposes the extension blocks is WMI: `root\WMI`'s `WmiMonitorDescriptorMethods.WmiGetMonitorRawEEdidV1Block(BlockId)` returns one 128-byte block per call, straight from what the driver read over DDC. `wmi_edid::raw_edids_by_instance()` walks blocks `0, 1, 2 …` until the driver refuses one (cap `MAX_EDID_BLOCKS = 8`) and concatenates them. It deliberately does **not** consult byte 126 to decide how many to read, for the same reason `EDID.decode()` ignores it: byte 126 is legitimately 1 on any EDID using the HF-EEODB override (see §3a), so it is not a usable block count.
 
 Four things about that path worth knowing before touching it:
 

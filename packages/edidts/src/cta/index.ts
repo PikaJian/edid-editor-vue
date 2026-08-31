@@ -47,6 +47,7 @@ export type {
   RoomConfigurationDataBlock,
   SpeakerLocationDataBlock,
   InfoFrameDataBlock,
+  HfEeodbDataBlock,
 } from './cta-extended-blocks';
 
 // CEA/CTA Extension Block
@@ -55,7 +56,8 @@ export {
   findHDMIBlock, 
   findHDMIForumBlock, 
   getSupportedVICs, 
-  getHDMI21Features 
+  getHDMI21Features,
+  getHfEeodbCount
 } from './extension-block';
 export type {
   ExtensionBlock,

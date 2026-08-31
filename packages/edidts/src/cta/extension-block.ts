@@ -7,7 +7,12 @@
  * CTA-861-G Extended Tag blocks are also supported.
  */
 
-import { decodeExtendedDataBlock, encodeExtendedDataBlock, type CTAExtendedDataBlock } from './cta-extended-blocks';
+import {
+  decodeExtendedDataBlock,
+  encodeExtendedDataBlock,
+  type CTAExtendedDataBlock,
+  type HfEeodbDataBlock,
+} from './cta-extended-blocks';
 import {
   DetailedTimingDescriptor,
   decodeEdidCtaDetailedTiming,
@@ -33,6 +38,26 @@ export type { VTBExtensionBlock, VTBDetailedTiming };
 
 /** Bytes 1 through 126 of a DisplayID EDID Extension Block (v2.1a Section 2.1). */
 const DISPLAY_ID_EDID_SECTION_LENGTH = 126;
+
+/**
+ * Reads the HDMI Forum EDID Extension Override Data Block, if the CEA
+ * extension carries one.
+ *
+ * Per HDMI 2.1 section 10.3.6 an EDID with more than one extension block keeps
+ * base block byte 126 at 1 — so sources that only read two blocks still see a
+ * consistent EDID — and states the real count in this block instead. It is
+ * therefore the authoritative extension count whenever it is present.
+ */
+export function getHfEeodbCount(block: ExtensionBlock | null | undefined): number | null {
+  if (!block || block.tag !== 0x02) return null;
+
+  const cea = block as CEAExtensionBlock;
+  const eeodb = cea.dataBlocks.find(
+    b => b.tag === 0x07 && (b as { extendedTag?: number }).extendedTag === 0x78,
+  ) as HfEeodbDataBlock | undefined;
+
+  return eeodb?.extensionBlockCount ?? null;
+}
 
 export type ExtensionTag = 
   | 0x02  // CEA-861 Extension

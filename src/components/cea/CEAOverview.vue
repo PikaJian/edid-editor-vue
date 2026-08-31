@@ -38,6 +38,18 @@ const blockSummary = computed(() => {
   return counts
 })
 
+/**
+ * HDMI Forum EDID Extension Override Data Block (extended tag 0x78).
+ *
+ * Worth calling out on its own: it is why such an EDID's byte 126 reads 1
+ * while more extension blocks follow (HDMI 2.1 section 10.3.6).
+ */
+const hfEeodb = computed(() =>
+  props.cea.dataBlocks.find(
+    b => b.tag === 0x07 && (b as { extendedTag?: number }).extendedTag === 0x78
+  ) as { extensionBlockCount?: number } | undefined
+)
+
 const switchRowClass = 'flex items-center justify-between gap-2 rounded-md border border-transparent px-3 py-2'
 </script>
 
@@ -62,6 +74,13 @@ const switchRowClass = 'flex items-center justify-between gap-2 rounded-md borde
             <span class="text-muted-foreground">Native Formats</span>
             <span class="font-mono">{{ cea.nativeFormats }}</span>
           </div>
+        </div>
+        <div v-if="hfEeodb" :class="switchRowClass">
+          <span class="text-muted-foreground">
+            Extension block count (HF-EEODB)
+            <span class="text-xs">— overrides byte 126, which stays 1</span>
+          </span>
+          <span class="font-mono">{{ hfEeodb.extensionBlockCount }}</span>
         </div>
       </section>
 

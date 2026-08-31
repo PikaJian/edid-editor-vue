@@ -578,8 +578,11 @@ function updateCEA(field: string, value: unknown) {
           v-if="edidRef?.extensionCountMismatch"
           class="mb-4 p-4 bg-amber-500/10 border border-amber-500 rounded-lg text-amber-600 dark:text-amber-400 text-sm"
         >
-          This EDID declares {{ edidRaw?.extensions }} extension block(s) at byte 126 but contains
-          {{ edidRef.extensionBlocks.length }}. All blocks present are shown; saving will write the corrected count.
+          This EDID declares
+          {{ edidRaw?.hfEeodbCount ?? edidRaw?.extensions }} extension block(s)<template
+            v-if="edidRaw?.hfEeodbCount != null"
+          > in its HF-EEODB</template><template v-else> at byte 126</template>
+          but contains {{ edidRef.extensionBlocks.length }}. All blocks present are shown.
         </div>
 
         <div v-if="!isLoaded" class="max-w-xl mx-auto">

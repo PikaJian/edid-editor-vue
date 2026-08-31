@@ -14,7 +14,7 @@ import {
   getProductSerial,
   getRangeLimits,
 } from "./display-descriptor";
-import { ExtensionBlock, ExtensionBlockParser, CEAExtensionBlock, DisplayIDExtensionBlock } from "../cta/extension-block";
+import { ExtensionBlock, ExtensionBlockParser, CEAExtensionBlock, DisplayIDExtensionBlock, getHfEeodbCount } from "../cta/extension-block";
 
 
 /**
@@ -63,11 +63,17 @@ export class EDID {
   public checksum: number = 0;
   public isValid: boolean = false;
   /**
-   * True when byte 126 disagrees with the number of extension blocks actually
-   * present. The blocks that are present are still decoded; re-encoding writes
-   * the corrected count.
+   * True when the declared extension count disagrees with the number of blocks
+   * actually present, after taking any HF-EEODB override into account. The
+   * blocks that are present are still decoded either way.
    */
   public extensionCountMismatch: boolean = false;
+  /**
+   * Extension count from the HF-EEODB in the first CTA extension, or null when
+   * there is none. When set, this — not byte 126 — is the authoritative count,
+   * and byte 126 is expected to be 1 (HDMI 2.1 section 10.3.6).
+   */
+  public hfEeodbCount: number | null = null;
 
   // Reactive getters and setters
   get header(): EDIDHeader { return this._header; }
@@ -338,7 +344,12 @@ export class EDID {
           this._extensionBlocks.push(extBlock);
         }
       }
-      this.extensionCountMismatch = this.extensions !== this._extensionBlocks.length;
+      // An HF-EEODB in the first CTA extension overrides byte 126, which such
+      // an EDID deliberately pins at 1 (HDMI 2.1 section 10.3.6). Only flag a
+      // mismatch that the override does not explain.
+      this.hfEeodbCount = getHfEeodbCount(this._extensionBlocks[0]);
+      const declaredExtensions = this.hfEeodbCount ?? this.extensions;
+      this.extensionCountMismatch = declaredExtensions !== this._extensionBlocks.length;
 
       // Store the raw data
       this._rawData = new Uint8Array(bytes);
@@ -436,8 +447,14 @@ export class EDID {
     // Write detailed timings and display descriptors at offset 54-125
     this.encodeDescriptorBlocks(edid);
 
-    // Write extensions count
-    edid[126] = this._extensionBlocks.length;
+    // Write extensions count.
+    //
+    // An EDID that carries an HF-EEODB must keep byte 126 at 1 no matter how
+    // many extension blocks follow — that is the whole point of the override
+    // (HDMI 2.1 section 10.3.6). Writing the real count here would break
+    // conformance and confuse sources that read only two blocks.
+    const eeodbCount = getHfEeodbCount(this._extensionBlocks[0]);
+    edid[126] = eeodbCount === null ? this._extensionBlocks.length : 1;
 
     // Calculate and write checksum for base block
     edid[127] = checksum8(edid, 127);
@@ -451,7 +468,8 @@ export class EDID {
 
     // Update validity
     this.isValid = isChecksum8Valid(edid.slice(0, 128));
-    this.extensions = this._extensionBlocks.length;
+    this.extensions = edid[126];
+    this.hfEeodbCount = eeodbCount;
 
     return edid;
   }
