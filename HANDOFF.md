@@ -16,7 +16,7 @@ Three features are documented, in the order their sections appear:
 |---|---|
 | Branch | `main` only — every feature branch described here is merged and deleted. |
 | PR | [#1](https://github.com/PikaJian/edid-editor-vue/pull/1) — **merged** as `763168a`; the feature commit is `2832563`. [#2](https://github.com/PikaJian/edid-editor-vue/pull/2) — **merged** as `53a6fa2`; Windows extension blocks via WMI, commits `871f0e0`/`f0f0af9`/`ca88bf5` |
-| Tests | 166 passing (`npm test`), plus 13 Rust (`cd src-tauri && cargo test --lib`, 1 more `#[ignore]`d) |
+| Tests | 175 passing (`npm test`), plus 13 Rust (`cd src-tauri && cargo test --lib`, 1 more `#[ignore]`d) |
 | Release | [v0.1.2](https://github.com/PikaJian/edid-editor-vue/releases/tag/v0.1.2) is current — the Windows extension-block fix (#2). `main` is ahead of that tag and **does now carry an unreleased user-facing fix**: dark-mode native `<select>` popups were unreadable on Windows (`9e0d7dc`, `ab483cd`, confirmed fixed on hardware). Worth a v0.1.3. Older releases are superseded and say so: v0.1.0's Windows build lists every monitor ever attached (`37cb884`), v0.1.1's returns only base blocks (#2). |
 | Untracked | `edid.bin` in the repo root — a real MSI MAG 272URDF dump used while debugging. Its bytes are already committed as a fixture, so the file itself is deliberately not tracked. |
 
@@ -83,6 +83,14 @@ The format traps that cost time (minus-one encoding, per-type pixel clock units,
 - `byteRanges.ts` — per-block hex highlighting, walking the encoded bytes.
 - `App.vue` — an amber warning banner when `extensionCountMismatch` is set, worded to name the HF-EEODB when one is present.
 - `cta/cta-extended-blocks.ts` — HF-EEODB (`0x78`) decode/encode; `CEAOverview.vue` shows the count.
+
+## 3b. Display Range Limits offsets — the same shape of bug, one block over
+
+Fixed after the HF-EEODB one, and worth reading together: both were cases of a byte the decoder never looked at and the encoder confidently zeroed.
+
+`display-descriptor.ts` read the Display Range Limits rates straight out of bytes 5–8 and wrote `bytes[4] = 0x00; // Reserved`. Byte 4 is the **rate offset flags** (E-EDID A.2 §3.10.3.3 Table 3.26), so on the MSI dump the declared 380 kHz horizontal maximum was reported as 125 kHz — a figure that contradicts the display's own 4K 160 Hz mode, which needs 350.72 kHz — and saving rewrote it to 125 kHz for real, checksum and all.
+
+The subtlety to preserve if this code is touched: the max/min tests differ. See **CLAUDE.md → Base EDID specifics**. `tests/range-limits-offsets.test.ts` pins every valid flag combination plus the real dump.
 
 ## 3a. HF-EEODB — the reason byte 126 reads 1
 

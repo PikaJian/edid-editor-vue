@@ -34,6 +34,12 @@ export interface AlphanumericDataDescriptor extends BaseDisplayDescriptor {
 
 export interface DisplayRangeLimitsDescriptor extends BaseDisplayDescriptor {
   tag: 0xFD;
+  /**
+   * Rate limits are the *resolved* values, with byte 4's 255-unit offsets
+   * already applied, so each spans 1 through 510 rather than 1 through 255
+   * (E-EDID A.2 §3.10.3.3 Table 3.26). Encoding derives the offset flags back
+   * from these, so there is no separate flags field to keep in sync.
+   */
   minVerticalRate: number;      // Hz
   maxVerticalRate: number;      // Hz
   minHorizontalRate: number;    // kHz
@@ -206,7 +212,9 @@ export class DisplayDescriptorParser {
     bytes[1] = 0x00;
     bytes[2] = 0x00;
     bytes[3] = descriptor.tag;
-    bytes[4] = 0x00; // Reserved
+    // Reserved for every display descriptor except Display Range Limits
+    // (tag FDh), whose encoder overwrites this with its offset flags.
+    bytes[4] = 0x00;
 
     switch (descriptor.tag) {
       case 0xFF:
@@ -294,6 +302,51 @@ export class DisplayDescriptorParser {
     };
   }
 
+  /** Byte 4's offsets are always 255 of the field's own unit (Table 3.26). */
+  private static readonly RANGE_RATE_OFFSET = 255;
+
+  /** Largest rate byte 4 can express: 255 stored plus the 255 offset. */
+  private static readonly RANGE_RATE_MAX = 510;
+
+  /**
+   * Resolves one axis of the Display Range Limits offset flags (byte 4):
+   * bits 1:0 for the vertical rates, bits 3:2 for the horizontal ones.
+   *
+   * The test is asymmetric, and Table 3.26 states it that way deliberately —
+   * the maximum is offset whenever the pair's high bit is set (10b *and* 11b),
+   * while the minimum is offset only when the pair is exactly 11b. Reading
+   * "pair is nonzero" as "offset both" would wrongly add 255 to the minimum in
+   * the common 10b case.
+   */
+  private static rangeRateOffsets(pair: number): { min: number; max: number } {
+    return {
+      max: (pair & 0x02) !== 0 ? this.RANGE_RATE_OFFSET : 0,
+      min: pair === 0x03 ? this.RANGE_RATE_OFFSET : 0,
+    };
+  }
+
+  /**
+   * Inverse of rangeRateOffsets: the flag pair that can represent these rates.
+   *
+   * A minimum above 255 forces 11b — and implies the maximum is above 255 too,
+   * since Table 3.26 requires min <= max. A maximum above 255 on its own gives
+   * 10b. Rates that both fit in a byte need no offset at all.
+   *
+   * This normalises the reserved encodings the spec tells implementers not to
+   * emit (a stored rate of 00h with its offset flag set) onto the equivalent
+   * offset-free form, which preserves the rate's meaning even though the byte
+   * pattern changes.
+   */
+  private static rangeRateFlagPair(min: number, max: number): number {
+    if (min > this.RANGE_RATE_OFFSET) return 0x03;
+    if (max > this.RANGE_RATE_OFFSET) return 0x02;
+    return 0x00;
+  }
+
+  private static clampRangeRate(rate: number): number {
+    return Math.max(0, Math.min(this.RANGE_RATE_MAX, Math.round(rate)));
+  }
+
   private static decodeRangeLimits(data: Uint8Array): DisplayRangeLimitsDescriptor {
     const timingSupportByte = data[10];
     let timingSupport: DisplayRangeLimitsDescriptor['timingSupport'] = 'default-gtf';
@@ -305,12 +358,17 @@ export class DisplayDescriptorParser {
       case 0x04: timingSupport = 'cvt'; break;
     }
 
+    // Byte 4 is the offset flags — the one descriptor where byte 4 is not a
+    // reserved 00h (E-EDID A.2 §3.10.3.3 Table 3.26).
+    const verticalOffsets = this.rangeRateOffsets(data[4] & 0x03);
+    const horizontalOffsets = this.rangeRateOffsets((data[4] >> 2) & 0x03);
+
     const descriptor: DisplayRangeLimitsDescriptor = {
       tag: 0xFD,
-      minVerticalRate: data[5],
-      maxVerticalRate: data[6],
-      minHorizontalRate: data[7],
-      maxHorizontalRate: data[8],
+      minVerticalRate: data[5] + verticalOffsets.min,
+      maxVerticalRate: data[6] + verticalOffsets.max,
+      minHorizontalRate: data[7] + horizontalOffsets.min,
+      maxHorizontalRate: data[8] + horizontalOffsets.max,
       maxPixelClock: data[9] * 10,
       timingSupport,
     };
@@ -356,10 +414,23 @@ export class DisplayDescriptorParser {
   }
 
   private static encodeRangeLimits(bytes: Uint8Array, desc: DisplayRangeLimitsDescriptor): void {
-    bytes[5] = desc.minVerticalRate;
-    bytes[6] = desc.maxVerticalRate;
-    bytes[7] = desc.minHorizontalRate;
-    bytes[8] = desc.maxHorizontalRate;
+    const minVertical = this.clampRangeRate(desc.minVerticalRate);
+    const maxVertical = this.clampRangeRate(desc.maxVerticalRate);
+    const minHorizontal = this.clampRangeRate(desc.minHorizontalRate);
+    const maxHorizontal = this.clampRangeRate(desc.maxHorizontalRate);
+
+    const verticalPair = this.rangeRateFlagPair(minVertical, maxVertical);
+    const horizontalPair = this.rangeRateFlagPair(minHorizontal, maxHorizontal);
+    const verticalOffsets = this.rangeRateOffsets(verticalPair);
+    const horizontalOffsets = this.rangeRateOffsets(horizontalPair);
+
+    // encode() cleared byte 4 as a reserved byte, which is right for every
+    // other display descriptor but not this one.
+    bytes[4] = verticalPair | (horizontalPair << 2);
+    bytes[5] = minVertical - verticalOffsets.min;
+    bytes[6] = maxVertical - verticalOffsets.max;
+    bytes[7] = minHorizontal - horizontalOffsets.min;
+    bytes[8] = maxHorizontal - horizontalOffsets.max;
     bytes[9] = Math.round(desc.maxPixelClock / 10);
 
     switch (desc.timingSupport) {

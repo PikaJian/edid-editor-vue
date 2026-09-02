@@ -80,7 +80,7 @@ Note the app and the package pin **different major versions of Vitest** (root 4.
 
 ## DisplayID specifics
 
-`DisplayID_v2_1a.pdf` in the repo root is the VESA DisplayID v2.1a spec (gitignored). There is **no v1.3 spec available here**, which bounds what can be implemented for v1.x — see below.
+`DisplayID_v2_1a.pdf` in the repo root is the VESA DisplayID v2.1a spec (gitignored, alongside `VESA-EEDID-A2.pdf` for the base EDID itself — `*.pdf` is ignored, so neither travels with a clone). There is **no v1.3 spec available here**, which bounds what can be implemented for v1.x — see below.
 
 Two structure versions coexist in the wild and both are supported:
 
@@ -99,6 +99,14 @@ Things about this format that have already caused bugs:
 - **Luminance fields are IEEE 754 half-precision, and negative zero is the "not provided" sentinel** — so the sign of zero must survive a round trip (`half-float.ts`, `Object.is(v, -0)`).
 - **ARVR_HMD (`2Ch`) / ARVR_Layer (`2Dh`) are deliberately not field-decoded.** Spec §4.10 forbids them in EDID Extension Sections, which is all this app reads.
 - **Appendix A of the spec is internally inconsistent.** Its byte `01h` declares 134 bytes-in-section while the checksum covers all 147; the test fixture uses the value Table 2-1 mandates and says why. Don't "fix" the fixture to match the PDF.
+
+## Base EDID specifics
+
+`VESA-EEDID-A2.pdf` (E-EDID Release A, Rev.2) is the reference for the 128-byte block. One trap has already bitten:
+
+- **In the Display Range Limits descriptor (tag `FDh`), byte 4 is *not* reserved** — it is the rate offset flags (§3.10.3.3 Table 3.26). Every other display descriptor really does have a fixed `(00 00 00 XX 00)h` preamble, which is why the generic encoder clears byte 4 and `encodeRangeLimits` has to overwrite it.
+- The offset tests are **asymmetric on purpose**: bits 1:0 cover the vertical rates and bits 3:2 the horizontal ones, and the *maximum* is offset by 255 whenever the pair's high bit is set (`10b` **and** `11b`) while the *minimum* is offset only when the pair is exactly `11b`. Treating "the pair is nonzero" as "offset both" adds 255 to the minimum in the common `10b` case.
+- `DisplayRangeLimitsDescriptor` therefore stores **resolved** rates (1–510), and `encode()` derives the flags back from them rather than keeping a separate flags field that could drift out of sync. A modern high-refresh panel needs this: ignoring byte 4 reports a 380 kHz maximum as 125 kHz, and for a display whose real maximum is under `255 + min` it inverts the range outright.
 
 ## Important Conventions
 
