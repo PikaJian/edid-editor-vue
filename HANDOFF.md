@@ -16,7 +16,7 @@ Three features are documented, in the order their sections appear:
 |---|---|
 | Branch | `main` only — every feature branch described here is merged and deleted. |
 | PR | [#1](https://github.com/PikaJian/edid-editor-vue/pull/1) — **merged** as `763168a`; the feature commit is `2832563`. [#2](https://github.com/PikaJian/edid-editor-vue/pull/2) — **merged** as `53a6fa2`; Windows extension blocks via WMI, commits `871f0e0`/`f0f0af9`/`ca88bf5` |
-| Tests | 175 passing (`npm test`), plus 13 Rust (`cd src-tauri && cargo test --lib`, 1 more `#[ignore]`d) |
+| Tests | 184 passing (`npm test`), plus 13 Rust (`cd src-tauri && cargo test --lib`, 1 more `#[ignore]`d) |
 | Release | [v0.1.2](https://github.com/PikaJian/edid-editor-vue/releases/tag/v0.1.2) is current — the Windows extension-block fix (#2). `main` is ahead of that tag and **does now carry an unreleased user-facing fix**: dark-mode native `<select>` popups were unreadable on Windows (`9e0d7dc`, `ab483cd`, confirmed fixed on hardware). Worth a v0.1.3. Older releases are superseded and say so: v0.1.0's Windows build lists every monitor ever attached (`37cb884`), v0.1.1's returns only base blocks (#2). |
 | Untracked | `edid.bin` in the repo root — a real MSI MAG 272URDF dump used while debugging. Its bytes are already committed as a fixture, so the file itself is deliberately not tracked. |
 
@@ -83,6 +83,18 @@ The format traps that cost time (minus-one encoding, per-type pixel clock units,
 - `byteRanges.ts` — per-block hex highlighting, walking the encoded bytes.
 - `App.vue` — an amber warning banner when `extensionCountMismatch` is set, worded to name the HF-EEODB when one is present.
 - `cta/cta-extended-blocks.ts` — HF-EEODB (`0x78`) decode/encode; `CEAOverview.vue` shows the count.
+
+## 3c. CTA block round trip — the same shape again, three more times
+
+Re-encoding rewrote most of the CTA extension: 67 of 128 bytes on the MSI dump, 42 on the CTA-only fixture. One cause, three sites — encoders that rebuild a block from the modelled fields and drop everything else.
+
+- **HF-VSDB** returned a fixed 9-byte array. This display's SCDS is 10 bytes, so PB7–PB10 (its VRR range and every DSC field) vanished and the block shrank by 4, shifting `dtdOffset` and everything after it.
+- **H14b-VSDB** did the same, 7 bytes where the fixture carries 14.
+- **Colorimetry** cleared byte 4's MD0–MD3 gamut metadata bits.
+
+Investigating it turned up bit-level mistakes too: PB5's FAPA and FVA were swapped, `vrr` read the QMS bit, and PB6 was treated as flags when it holds VRRMIN/VRRMAX. Those are fixed in a second commit — see **CLAUDE.md → CEA-861 / HDMI specifics** for the rules, and `tests/cta-roundtrip.test.ts` for the pins.
+
+Both fixtures now re-encode byte for byte, 384 and 256 bytes with zero differences. Model fields that changed name or meaning: `uhd4k` → `uhdVic`, `fapa` → `fapaStartLocation`, `vrr` → `qms`, `cnmVrr` → `cinemaVrr` (deprecated by the spec), and the `dsc` boolean became a `dsc` object.
 
 ## 3b. Display Range Limits offsets — the same shape of bug, one block over
 

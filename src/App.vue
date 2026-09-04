@@ -351,12 +351,16 @@ function addCEADataBlock(blockType: string) {
       cea.dataBlocks.push({
         tag: 0x03, data: empty,
         ieeeOui: 0xC45DD8,
-        payload: new Uint8Array([1, 0, 0, 0, 0, 0]),
+        // SCDS PB1..PB7, enough for the fields the editor exposes.
+          payload: new Uint8Array([1, 0, 0, 0, 0, 0, 0]),
         hdmiForum: {
-          version: 1, maxTmdsCharacterRate: 0, scdc: false, rr: false, lte340McscScramble: false,
-          independentView: false, dualView: false, osd3d: false, dc30bit420: false, dc36bit420: false,
-          dc48bit420: false, uhd4k: false, vrr: false, fapa: false, allm: false, fva: false,
-          cnmVrr: false, dsc: false, maxFrlRate: 0,
+          version: 1, maxTmdsCharacterRate: 0,
+          scdc: false, rr: false, cableStatus: false, ccbpci: false, lte340McscScramble: false,
+          independentView: false, dualView: false, osd3d: false,
+          maxFrlRate: 0, uhdVic: false, dc48bit420: false, dc36bit420: false, dc30bit420: false,
+          fapaEndExtended: false, qms: false, mDelta: false, cinemaVrr: false, negMvrr: false,
+          fva: false, allm: false, fapaStartLocation: false,
+          vrrMin: 0, vrrMax: 0,
         },
       } as unknown as import('edidts').CEADataBlock)
       activeSection.value = 'cea-vendor-forum'

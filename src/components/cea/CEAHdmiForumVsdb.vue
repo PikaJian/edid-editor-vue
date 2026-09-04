@@ -21,6 +21,18 @@ const forum = computed(() => (
   ) as VendorSpecificDataBlock | undefined
 )?.hdmiForum)
 
+/** DSC colour depths the sink accepts, per HDMI 2.1b Table 10-7 PB8. */
+const dscColorDepths = computed(() => {
+  const dsc = forum.value?.dsc
+  if (!dsc) return '—'
+  const depths = [
+    dsc.bpc10 && '10 bpc',
+    dsc.bpc12 && '12 bpc',
+    dsc.bpc16 && '16 bpc',
+  ].filter(Boolean)
+  return depths.length ? depths.join(', ') : 'None declared'
+})
+
 const rowClass = 'flex items-center justify-between gap-2 rounded-md border border-transparent px-3 py-2 hover:bg-muted/50 transition-colors'
 const selectClass = 'flex h-8 w-full rounded-md border border-input dark:bg-input/30 bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]'
 const frlRates = [0, 1, 2, 3, 4, 5, 6]
@@ -102,33 +114,121 @@ function frlRateLabel(rate: number): string {
           <h4 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">HDMI 2.1 Features</h4>
           <div class="grid grid-cols-3 gap-x-6 gap-y-1">
             <label :class="rowClass">
-              <span>VRR</span>
-              <Switch :model-value="forum.vrr" @update:model-value="(v: boolean) => updateField('vrr', v)" />
-            </label>
-            <label :class="rowClass">
               <span>ALLM</span>
-              <Switch :model-value="forum.allm" @update:model-value="(v: boolean) => updateField('allm', v)" />
+              <Switch :model-value="forum.allm ?? false" @update:model-value="(v: boolean) => updateField('allm', v)" />
             </label>
             <label :class="rowClass">
-              <span>DSC</span>
-              <Switch :model-value="forum.dsc" @update:model-value="(v: boolean) => updateField('dsc', v)" />
-            </label>
-            <label :class="rowClass">
-              <span>CinemaVRR</span>
-              <Switch :model-value="forum.cnmVrr" @update:model-value="(v: boolean) => updateField('cnmVrr', v)" />
-            </label>
-            <label :class="rowClass">
-              <span>FAPA</span>
-              <Switch :model-value="forum.fapa" @update:model-value="(v: boolean) => updateField('fapa', v)" />
+              <span>QMS</span>
+              <Switch :model-value="forum.qms ?? false" @update:model-value="(v: boolean) => updateField('qms', v)" />
             </label>
             <label :class="rowClass">
               <span>FVA</span>
-              <Switch :model-value="forum.fva" @update:model-value="(v: boolean) => updateField('fva', v)" />
+              <Switch :model-value="forum.fva ?? false" @update:model-value="(v: boolean) => updateField('fva', v)" />
             </label>
             <label :class="rowClass">
-              <span>UHD 4K</span>
-              <Switch :model-value="forum.uhd4k" @update:model-value="(v: boolean) => updateField('uhd4k', v)" />
+              <span>FAPA start location</span>
+              <Switch
+                :model-value="forum.fapaStartLocation ?? false"
+                @update:model-value="(v: boolean) => updateField('fapaStartLocation', v)"
+              />
             </label>
+            <label :class="rowClass">
+              <span>FAPA end extended</span>
+              <Switch
+                :model-value="forum.fapaEndExtended ?? false"
+                @update:model-value="(v: boolean) => updateField('fapaEndExtended', v)"
+              />
+            </label>
+            <label :class="rowClass">
+              <span>M-Delta</span>
+              <Switch :model-value="forum.mDelta ?? false" @update:model-value="(v: boolean) => updateField('mDelta', v)" />
+            </label>
+            <label :class="rowClass">
+              <span>NEG_MVRR</span>
+              <Switch :model-value="forum.negMvrr ?? false" @update:model-value="(v: boolean) => updateField('negMvrr', v)" />
+            </label>
+            <label :class="rowClass">
+              <span>UHD VIC</span>
+              <Switch :model-value="forum.uhdVic" @update:model-value="(v: boolean) => updateField('uhdVic', v)" />
+            </label>
+            <label :class="rowClass">
+              <span>Cable status</span>
+              <Switch
+                :model-value="forum.cableStatus"
+                @update:model-value="(v: boolean) => updateField('cableStatus', v)"
+              />
+            </label>
+          </div>
+        </section>
+
+        <section>
+          <h4 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+            Variable Refresh Rate
+            <span class="normal-case font-normal">— a range of 0 means VRR is not declared</span>
+          </h4>
+          <div class="grid grid-cols-2 gap-x-6 gap-y-1">
+            <label class="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              VRR min (Hz)
+              <Input
+                type="number"
+                :min="0"
+                :max="63"
+                :model-value="forum.vrrMin ?? 0"
+                @update:model-value="(v) => updateField('vrrMin', Number(v))"
+              />
+            </label>
+            <label class="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              VRR max (Hz)
+              <Input
+                type="number"
+                :min="0"
+                :max="1023"
+                :model-value="forum.vrrMax ?? 0"
+                @update:model-value="(v) => updateField('vrrMax', Number(v))"
+              />
+            </label>
+          </div>
+        </section>
+
+        <section v-if="forum.dsc">
+          <h4 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+            Display Stream Compression
+          </h4>
+          <div class="grid grid-cols-3 gap-x-6 gap-y-1">
+            <div :class="rowClass">
+              <span>DSC 1.2</span>
+              <span :class="forum.dsc.dsc1p2 ? 'text-emerald-500' : 'text-muted-foreground'">
+                {{ forum.dsc.dsc1p2 ? 'Supported' : 'No' }}
+              </span>
+            </div>
+            <div :class="rowClass">
+              <span>Native 4:2:0</span>
+              <span :class="forum.dsc.native420 ? 'text-emerald-500' : 'text-muted-foreground'">
+                {{ forum.dsc.native420 ? 'Supported' : 'No' }}
+              </span>
+            </div>
+            <div :class="rowClass">
+              <span>All bpp</span>
+              <span :class="forum.dsc.allBpp ? 'text-emerald-500' : 'text-muted-foreground'">
+                {{ forum.dsc.allBpp ? 'Supported' : 'No' }}
+              </span>
+            </div>
+            <div :class="rowClass">
+              <span>Colour depth</span>
+              <span class="font-mono text-xs">{{ dscColorDepths }}</span>
+            </div>
+            <div :class="rowClass">
+              <span>Max FRL rate</span>
+              <span class="font-mono">{{ forum.dsc.maxFrlRate }}</span>
+            </div>
+            <div :class="rowClass">
+              <span>Max slices</span>
+              <span class="font-mono">{{ forum.dsc.maxSlices }}</span>
+            </div>
+            <div :class="rowClass">
+              <span>Total chunk kBytes</span>
+              <span class="font-mono">{{ forum.dsc.totalChunkKBytes }}</span>
+            </div>
           </div>
         </section>
 

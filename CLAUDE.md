@@ -100,6 +100,15 @@ Things about this format that have already caused bugs:
 - **ARVR_HMD (`2Ch`) / ARVR_Layer (`2Dh`) are deliberately not field-decoded.** Spec §4.10 forbids them in EDID Extension Sections, which is all this app reads.
 - **Appendix A of the spec is internally inconsistent.** Its byte `01h` declares 134 bytes-in-section while the checksum covers all 147; the test fixture uses the value Table 2-1 mandates and says why. Don't "fix" the fixture to match the PDF.
 
+## CEA-861 / HDMI specifics
+
+`CTA-861-G_FINAL_revised_2017.pdf` and `HDMI 2.1b-*.pdf` are not in this repo; the copies used so far live in `~/rpi_tools/HDMI/`.
+
+- **The HF-VSDB payload is the Sink Capability Data Structure** (HDMI 2.1b Table 10-7), PB1 through PB28. Only PB1–PB4 are mandatory; a Sink may declare an SCDS as short as 4 bytes, so everything from PB5 on is optional in the model. Section 10.3.2.1 requires a source to honour the declared length **"including any Reserved bytes present at the end"** — never rebuild this block at a fixed size.
+- **PB5's bits are easy to transpose**: bit 0 is `FAPA_start_location`, bit 2 is `FVA`, bit 6 is `QMS`. An earlier version of this code had FAPA and FVA swapped and read QMS as "VRR".
+- **VRR is not a flag.** A Sink declares it through `VRRMIN` (PB6 bits 5:0) and `VRRMAX` (PB6 bits 7:6 plus all of PB7); a range of 0 means no VRR. DSC capability lives in PB8–PB10, not in a single bit.
+- **Encoders must not clear bits they do not model.** The CTA encoders rebuild blocks from the decoded fields, so each one starts from the decoded payload and writes back only the bits it owns. This applies to the H14b-VSDB (latency fields, HDMI_VIC and the 3D structures sit past the modelled bytes) and to the Colorimetry block, whose byte 4 carries MD0–MD3 alongside the DCI-P3 flag (CTA-861-G Table 70).
+
 ## Base EDID specifics
 
 `VESA-EEDID-A2.pdf` (E-EDID Release A, Rev.2) is the reference for the 128-byte block. One trap has already bitten:

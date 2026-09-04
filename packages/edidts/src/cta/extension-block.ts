@@ -46,15 +46,6 @@ const DISPLAY_ID_EDID_SECTION_LENGTH = 126;
  */
 const HF_VSDB_MIN_SCDS_BYTES = 4;
 
-/** PB3 bits this model owns; 30h (CABLE_STATUS, CCBPCI) is not decoded. */
-const HF_VSDB_PB3_MODELLED = 0xCF;
-
-/** PB5 bits this model owns. */
-const HF_VSDB_PB5_MODELLED = 0x47;
-
-/** PB6 bits this model owns; the rest carries VRRMIN, which is not decoded. */
-const HF_VSDB_PB6_MODELLED = 0xC0;
-
 /** Shortest legal H14b-VSDB payload: the two Source Physical Address bytes. */
 const H14B_VSDB_MIN_PAYLOAD_BYTES = 2;
 
@@ -173,27 +164,59 @@ export interface VendorSpecificDataBlock extends CEADataBlock {
     dc48bit: boolean;
     maxTmdsClockMHz: number;
   };
-  // HDMI Forum Vendor Specific (OUI = 0xC45DD8) - HDMI 2.0/2.1
+  /**
+   * HDMI Forum Vendor Specific Data Block (OUI = 0xC45DD8).
+   *
+   * Fields follow the Sink Capability Data Structure of HDMI 2.1b Table 10-7,
+   * named PB1 through PB10 there. Everything from PB5 on is optional: a Sink
+   * may declare an SCDS as short as 4 bytes, so the later groups are undefined
+   * when the block does not reach them.
+   */
   hdmiForum?: {
-    version: number;
-    maxTmdsCharacterRate: number; // Max TMDS Character Rate (in MHz, 0 = use HDMI 1.4 VSDB value)
-    scdc: boolean;              // SCDC Present
-    rr: boolean;                // HDMI Forum VSDB Ready Request
-    lte340McscScramble: boolean; // LTE 340Mcsc Scramble
-    independentView: boolean;    // Independent View
-    dualView: boolean;           // Dual View
-    osd3d: boolean;              // 3D OSD Disparity
-    dc30bit420: boolean;         // Deep Color 4:2:0 30-bit
-    dc36bit420: boolean;         // Deep Color 4:2:0 36-bit
-    dc48bit420: boolean;         // Deep Color 4:2:0 48-bit
-    uhd4k: boolean;              // Supports 4K video
-    vrr: boolean;                // Variable Refresh Rate (HDMI 2.1)
-    fapa: boolean;               // Fast Active Processing Area (HDMI 2.1)
-    allm: boolean;               // Auto Low Latency Mode (HDMI 2.1)
-    fva: boolean;                // Fast VActive (HDMI 2.1)
-    cnmVrr: boolean;             // CinemaVRR (HDMI 2.1)
-    dsc: boolean;                // DSC support (HDMI 2.1)
-    maxFrlRate: number;          // Max FRL Rate (0-6)
+    version: number;              // PB1
+    maxTmdsCharacterRate: number; // PB2, in MHz (0 = use the H14b-VSDB value)
+    // PB3
+    scdc: boolean;               // SCDC_Present
+    rr: boolean;                 // RR_Capable
+    cableStatus: boolean;        // CABLE_STATUS
+    ccbpci: boolean;             // CCBPCI
+    lte340McscScramble: boolean; // LTE_340Mcsc_scramble
+    independentView: boolean;    // Independent_View
+    dualView: boolean;           // Dual_View
+    osd3d: boolean;              // 3D_OSD_Disparity
+    // PB4
+    maxFrlRate: number;          // Max_FRL_Rate, bits 7:4
+    uhdVic: boolean;             // UHD_VIC
+    dc48bit420: boolean;         // DC_48bit_420
+    dc36bit420: boolean;         // DC_36bit_420
+    dc30bit420: boolean;         // DC_30bit_420
+    // PB5
+    fapaEndExtended?: boolean;   // FAPA_End_Extended
+    qms?: boolean;               // QMS
+    mDelta?: boolean;            // MDelta
+    /** Deprecated by HDMI 2.1b; the spec requires this to be cleared. */
+    cinemaVrr?: boolean;
+    negMvrr?: boolean;           // NEG_MVRR
+    fva?: boolean;               // FVA
+    allm?: boolean;              // ALLM
+    fapaStartLocation?: boolean; // FAPA_start_location
+    /** PB6/PB7. A range of 0 means the Sink declares no VRR support. */
+    vrrMin?: number;
+    vrrMax?: number;
+    /** PB8 through PB10, present only on an SCDS that reaches them. */
+    dsc?: {
+      dsc1p2: boolean;
+      native420: boolean;
+      qmsTfrMax: boolean;
+      qmsTfrMin: boolean;
+      allBpp: boolean;
+      bpc16: boolean;
+      bpc12: boolean;
+      bpc10: boolean;
+      maxFrlRate: number;
+      maxSlices: number;
+      totalChunkKBytes: number;
+    };
   };
 }
 
@@ -496,36 +519,68 @@ export class ExtensionBlockParser {
       };
     }
 
-    // HDMI Forum Vendor Specific (OUI 0xC45DD8) - HDMI 2.0/2.1
+    // HDMI Forum Vendor Specific (OUI 0xC45DD8). The payload is the Sink
+    // Capability Data Structure, PB1..PB28 of HDMI 2.1b Table 10-7.
     if (ieeeOui === 0xC45DD8 && payload.length >= 4) {
-      const byte4 = payload[0];
-      const byte5 = payload[1];
-      const byte6 = payload.length >= 3 ? payload[2] : 0;
-      const byte7 = payload.length >= 4 ? payload[3] : 0;
-      const byte8 = payload.length >= 5 ? payload[4] : 0;
-      const byte9 = payload.length >= 6 ? payload[5] : 0;
-      
+      const pb = (n: number): number => payload[n - 1] ?? 0;
+      const pb3 = pb(3);
+      const pb4 = pb(4);
+
       block.hdmiForum = {
-        version: byte4,
-        maxTmdsCharacterRate: byte5 * 5, // 5 MHz units
-        scdc: (byte6 & 0x80) !== 0,
-        rr: (byte6 & 0x40) !== 0,
-        lte340McscScramble: (byte6 & 0x08) !== 0,
-        independentView: (byte6 & 0x04) !== 0,
-        dualView: (byte6 & 0x02) !== 0,
-        osd3d: (byte6 & 0x01) !== 0,
-        dc30bit420: (byte7 & 0x01) !== 0,
-        dc36bit420: (byte7 & 0x02) !== 0,
-        dc48bit420: (byte7 & 0x04) !== 0,
-        uhd4k: (byte7 & 0x08) !== 0,
-        vrr: (byte8 & 0x40) !== 0,        // VRR
-        fapa: (byte8 & 0x04) !== 0,       // FAPA Start Location
-        allm: (byte8 & 0x02) !== 0,       // ALLM
-        fva: (byte8 & 0x01) !== 0,        // FVA
-        cnmVrr: (byte9 & 0x80) !== 0,     // CinemaVRR
-        dsc: (byte9 & 0x40) !== 0,        // DSC
-        maxFrlRate: (byte7 >> 4) & 0x0F,  // Max FRL Rate
+        version: pb(1),
+        maxTmdsCharacterRate: pb(2) * 5,
+
+        scdc: (pb3 & 0x80) !== 0,
+        rr: (pb3 & 0x40) !== 0,
+        cableStatus: (pb3 & 0x20) !== 0,
+        ccbpci: (pb3 & 0x10) !== 0,
+        lte340McscScramble: (pb3 & 0x08) !== 0,
+        independentView: (pb3 & 0x04) !== 0,
+        dualView: (pb3 & 0x02) !== 0,
+        osd3d: (pb3 & 0x01) !== 0,
+
+        maxFrlRate: (pb4 >> 4) & 0x0F,
+        uhdVic: (pb4 & 0x08) !== 0,
+        dc48bit420: (pb4 & 0x04) !== 0,
+        dc36bit420: (pb4 & 0x02) !== 0,
+        dc30bit420: (pb4 & 0x01) !== 0,
       };
+
+      if (payload.length >= 5) {
+        const pb5 = pb(5);
+        block.hdmiForum.fapaEndExtended = (pb5 & 0x80) !== 0;
+        block.hdmiForum.qms = (pb5 & 0x40) !== 0;
+        block.hdmiForum.mDelta = (pb5 & 0x20) !== 0;
+        block.hdmiForum.cinemaVrr = (pb5 & 0x10) !== 0;
+        block.hdmiForum.negMvrr = (pb5 & 0x08) !== 0;
+        block.hdmiForum.fva = (pb5 & 0x04) !== 0;
+        block.hdmiForum.allm = (pb5 & 0x02) !== 0;
+        block.hdmiForum.fapaStartLocation = (pb5 & 0x01) !== 0;
+      }
+
+      // VRRMIN is PB6 bits 5:0; VRRMAX spans PB6 bits 7:6 and all of PB7.
+      if (payload.length >= 7) {
+        block.hdmiForum.vrrMin = pb(6) & 0x3F;
+        block.hdmiForum.vrrMax = (((pb(6) >> 6) & 0x03) << 8) | pb(7);
+      }
+
+      if (payload.length >= 10) {
+        const pb8 = pb(8);
+        const pb9 = pb(9);
+        block.hdmiForum.dsc = {
+          dsc1p2: (pb8 & 0x80) !== 0,
+          native420: (pb8 & 0x40) !== 0,
+          qmsTfrMax: (pb8 & 0x20) !== 0,
+          qmsTfrMin: (pb8 & 0x10) !== 0,
+          allBpp: (pb8 & 0x08) !== 0,
+          bpc16: (pb8 & 0x04) !== 0,
+          bpc12: (pb8 & 0x02) !== 0,
+          bpc10: (pb8 & 0x01) !== 0,
+          maxFrlRate: (pb9 >> 4) & 0x0F,
+          maxSlices: pb9 & 0x0F,
+          totalChunkKBytes: pb(10) & 0x3F,
+        };
+      }
     }
 
     return block;
@@ -766,47 +821,69 @@ export class ExtensionBlockParser {
     if (block.ieeeOui === 0xC45DD8 && block.hdmiForum) {
       const f = block.hdmiForum;
 
-      let byte6 = 0;
-      if (f.scdc) byte6 |= 0x80;
-      if (f.rr) byte6 |= 0x40;
-      if (f.lte340McscScramble) byte6 |= 0x08;
-      if (f.independentView) byte6 |= 0x04;
-      if (f.dualView) byte6 |= 0x02;
-      if (f.osd3d) byte6 |= 0x01;
-
-      let byte7 = (f.maxFrlRate & 0x0F) << 4;
-      if (f.dc30bit420) byte7 |= 0x01;
-      if (f.dc36bit420) byte7 |= 0x02;
-      if (f.dc48bit420) byte7 |= 0x04;
-      if (f.uhd4k) byte7 |= 0x08;
-
-      let byte8 = 0;
-      if (f.vrr) byte8 |= 0x40;
-      if (f.fapa) byte8 |= 0x04;
-      if (f.allm) byte8 |= 0x02;
-      if (f.fva) byte8 |= 0x01;
-
-      let byte9 = 0;
-      if (f.cnmVrr) byte9 |= 0x80;
-      if (f.dsc) byte9 |= 0x40;
-
-      // The payload is the Sink Capability Data Structure (HDMI 2.1b
-      // Table 10-7), which runs to 28 bytes. This model covers PB1 through
-      // PB6 and only some bits of those, so start from the decoded payload
-      // and write back just the bits that are modelled: HDMI 2.1b section
-      // 10.3.2.1 requires a source to honour the declared length "including
-      // any Reserved bytes present at the end of the structure", and a panel's
-      // VRR range and DSC capability live in the bytes past PB6.
+      // Keep the declared SCDS length: HDMI 2.1b section 10.3.2.1 requires a
+      // source to honour it "including any Reserved bytes present at the end",
+      // and PB11 onward is reserved space this model does not interpret.
       const scds = new Uint8Array(Math.max(HF_VSDB_MIN_SCDS_BYTES, block.payload.length));
       scds.set(block.payload.slice(0, scds.length));
 
       scds[0] = f.version & 0xFF;
       scds[1] = Math.round(f.maxTmdsCharacterRate / 5) & 0xFF;
-      scds[2] = (scds[2] & ~HF_VSDB_PB3_MODELLED) | byte6;
-      scds[3] = byte7; // PB4 is modelled in full
-      // PB5 and PB6 are optional; a 4-byte SCDS simply ends before them.
-      if (scds.length > 4) scds[4] = (scds[4] & ~HF_VSDB_PB5_MODELLED) | byte8;
-      if (scds.length > 5) scds[5] = (scds[5] & ~HF_VSDB_PB6_MODELLED) | byte9;
+
+      let pb3 = 0;
+      if (f.scdc) pb3 |= 0x80;
+      if (f.rr) pb3 |= 0x40;
+      if (f.cableStatus) pb3 |= 0x20;
+      if (f.ccbpci) pb3 |= 0x10;
+      if (f.lte340McscScramble) pb3 |= 0x08;
+      if (f.independentView) pb3 |= 0x04;
+      if (f.dualView) pb3 |= 0x02;
+      if (f.osd3d) pb3 |= 0x01;
+      scds[2] = pb3;
+
+      let pb4 = (f.maxFrlRate & 0x0F) << 4;
+      if (f.uhdVic) pb4 |= 0x08;
+      if (f.dc48bit420) pb4 |= 0x04;
+      if (f.dc36bit420) pb4 |= 0x02;
+      if (f.dc30bit420) pb4 |= 0x01;
+      scds[3] = pb4;
+
+      if (scds.length > 4) {
+        let pb5 = 0;
+        if (f.fapaEndExtended) pb5 |= 0x80;
+        if (f.qms) pb5 |= 0x40;
+        if (f.mDelta) pb5 |= 0x20;
+        if (f.cinemaVrr) pb5 |= 0x10;
+        if (f.negMvrr) pb5 |= 0x08;
+        if (f.fva) pb5 |= 0x04;
+        if (f.allm) pb5 |= 0x02;
+        if (f.fapaStartLocation) pb5 |= 0x01;
+        scds[4] = pb5;
+      }
+
+      if (scds.length > 6) {
+        const vrrMin = f.vrrMin ?? 0;
+        const vrrMax = f.vrrMax ?? 0;
+        scds[5] = ((vrrMax >> 8) & 0x03) << 6 | (vrrMin & 0x3F);
+        scds[6] = vrrMax & 0xFF;
+      }
+
+      if (scds.length > 9 && f.dsc) {
+        const d = f.dsc;
+        let pb8 = 0;
+        if (d.dsc1p2) pb8 |= 0x80;
+        if (d.native420) pb8 |= 0x40;
+        if (d.qmsTfrMax) pb8 |= 0x20;
+        if (d.qmsTfrMin) pb8 |= 0x10;
+        if (d.allBpp) pb8 |= 0x08;
+        if (d.bpc16) pb8 |= 0x04;
+        if (d.bpc12) pb8 |= 0x02;
+        if (d.bpc10) pb8 |= 0x01;
+        scds[7] = pb8;
+        scds[8] = ((d.maxFrlRate & 0x0F) << 4) | (d.maxSlices & 0x0F);
+        // PB10 bits 7:6 are Reserved(0); keep whatever was decoded there.
+        scds[9] = (scds[9] & 0xC0) | (d.totalChunkKBytes & 0x3F);
+      }
 
       return new Uint8Array([...ouiBytes, ...scds]);
     }
@@ -913,11 +990,14 @@ export function getHDMI21Features(cea: CEAExtensionBlock): {
   const forum = findHDMIForumBlock(cea);
   if (!forum?.hdmiForum) return null;
   
+  const f = forum.hdmiForum;
+
   return {
-    vrr: forum.hdmiForum.vrr,
-    allm: forum.hdmiForum.allm,
-    qms: forum.hdmiForum.fva,
-    dsc: forum.hdmiForum.dsc,
-    maxFrlRate: forum.hdmiForum.maxFrlRate,
+    // A Sink declares VRR through the PB6/PB7 range, not a flag bit.
+    vrr: (f.vrrMax ?? 0) > 0,
+    allm: f.allm === true,
+    qms: f.qms === true,
+    dsc: f.dsc?.dsc1p2 === true,
+    maxFrlRate: f.maxFrlRate,
   };
 }

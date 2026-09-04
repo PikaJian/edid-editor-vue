@@ -55,3 +55,63 @@ describe('CTA extension round trip', () => {
     expect(encoded[128 + 67]).toBe(0x01)
   })
 })
+
+/**
+ * The SCDS bit assignments, checked against HDMI 2.1b Table 10-7 rather than
+ * against what the previous implementation happened to do — PB5's FAPA and FVA
+ * were swapped there, and PB6 was read as flag bits when it carries VRRMIN.
+ */
+describe('HF-VSDB Sink Capability Data Structure', () => {
+  const forum = () => {
+    const edid = new EDID(MSI_MAG272URDF_DISPLAYID_V1)
+    const block = edid.ceaExtension!.dataBlocks.find(
+      b => b.tag === 0x03 && (b as VendorSpecificDataBlock).ieeeOui === 0xc45dd8,
+    ) as VendorSpecificDataBlock
+    return block.hdmiForum!
+  }
+
+  it('reads PB5 flags at their spec bit positions', () => {
+    // PB5 is 02h here: ALLM (bit 1) alone.
+    const f = forum()
+    expect(f.allm).toBe(true)
+    expect(f.fva).toBe(false) // bit 2
+    expect(f.fapaStartLocation).toBe(false) // bit 0
+    expect(f.qms).toBe(false) // bit 6
+    expect(f.fapaEndExtended).toBe(false)
+    expect(f.negMvrr).toBe(false)
+  })
+
+  it('reads the VRR range from PB6 and PB7', () => {
+    // PB6 = 30h -> VRRMAX[9:8] = 0, VRRMIN = 48. PB7 = A0h -> VRRMAX = 160.
+    // Cross-check: the Display Range Limits descriptor says 48-160 Hz too.
+    const f = forum()
+    expect(f.vrrMin).toBe(48)
+    expect(f.vrrMax).toBe(160)
+  })
+
+  it('reads the DSC capability from PB8 through PB10', () => {
+    // Previously reported as dsc=false, read from the wrong byte entirely.
+    const dsc = forum().dsc!
+    expect(dsc.dsc1p2).toBe(true)
+    expect(dsc.bpc12).toBe(true)
+    expect(dsc.bpc10).toBe(true)
+    expect(dsc.native420).toBe(false)
+    expect(dsc.maxFrlRate).toBe(6)
+    expect(dsc.maxSlices).toBe(5)
+    expect(dsc.totalChunkKBytes).toBe(35)
+  })
+
+  it('leaves the optional groups undefined on a short SCDS', () => {
+    // APPENDIX_A_EXAMPLE_1 carries the 4-byte minimum: PB1..PB4 only.
+    const edid = new EDID(APPENDIX_A_EXAMPLE_1)
+    const block = edid.ceaExtension!.dataBlocks.find(
+      b => b.tag === 0x03 && (b as VendorSpecificDataBlock).ieeeOui === 0xc45dd8,
+    ) as VendorSpecificDataBlock
+    const f = block.hdmiForum!
+
+    expect(f.maxFrlRate).toBeGreaterThanOrEqual(0)
+    expect(f.allm).toBeUndefined()
+    expect(f.vrrMin).toBeUndefined()
+    expect(f.dsc).toBeUndefined()
+  })
+})
