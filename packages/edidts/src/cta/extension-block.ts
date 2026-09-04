@@ -40,6 +40,28 @@ export type { VTBExtensionBlock, VTBDetailedTiming };
 const DISPLAY_ID_EDID_SECTION_LENGTH = 126;
 
 /**
+ * Shortest legal Sink Capability Data Structure (HDMI 2.1b Table 10-7 notes:
+ * "The minimum length of the SCDS is 4"). The model covers PB1 through PB6,
+ * but a shorter block is valid and must not be padded out to that.
+ */
+const HF_VSDB_MIN_SCDS_BYTES = 4;
+
+/** PB3 bits this model owns; 30h (CABLE_STATUS, CCBPCI) is not decoded. */
+const HF_VSDB_PB3_MODELLED = 0xCF;
+
+/** PB5 bits this model owns. */
+const HF_VSDB_PB5_MODELLED = 0x47;
+
+/** PB6 bits this model owns; the rest carries VRRMIN, which is not decoded. */
+const HF_VSDB_PB6_MODELLED = 0xC0;
+
+/** Shortest legal H14b-VSDB payload: the two Source Physical Address bytes. */
+const H14B_VSDB_MIN_PAYLOAD_BYTES = 2;
+
+/** H14b-VSDB flags-byte bits this model owns; 0Fh holds latency-present flags. */
+const H14B_VSDB_FLAGS_MODELLED = 0xF8;
+
+/**
  * Reads the HDMI Forum EDID Extension Override Data Block, if the CEA
  * extension carries one.
  *
@@ -725,13 +747,20 @@ export class ExtensionBlockParser {
       if (h.dc30bit) flagsByte |= 0x10;
       if (h.dcY444) flagsByte |= 0x08;
 
-      return new Uint8Array([
-        ...ouiBytes,
-        (physAddr >> 8) & 0xFF,
-        physAddr & 0xFF,
-        flagsByte,
-        Math.round(h.maxTmdsClockMHz / 5) & 0xFF,
-      ]);
+      // H14b section 8.3.2 lets this block run well past the four bytes
+      // modelled here — latency fields, HDMI_VIC and the 3D structures all
+      // follow — so keep whatever length was decoded and write back only the
+      // modelled bytes. Bits 3:0 of the flags byte are likewise not decoded.
+      const payload = new Uint8Array(Math.max(H14B_VSDB_MIN_PAYLOAD_BYTES, block.payload.length));
+      payload.set(block.payload.slice(0, payload.length));
+
+      payload[0] = (physAddr >> 8) & 0xFF;
+      payload[1] = physAddr & 0xFF;
+      // Everything past the physical address is optional in H14b.
+      if (payload.length > 2) payload[2] = (payload[2] & ~H14B_VSDB_FLAGS_MODELLED) | flagsByte;
+      if (payload.length > 3) payload[3] = Math.round(h.maxTmdsClockMHz / 5) & 0xFF;
+
+      return new Uint8Array([...ouiBytes, ...payload]);
     }
 
     if (block.ieeeOui === 0xC45DD8 && block.hdmiForum) {
@@ -761,15 +790,25 @@ export class ExtensionBlockParser {
       if (f.cnmVrr) byte9 |= 0x80;
       if (f.dsc) byte9 |= 0x40;
 
-      return new Uint8Array([
-        ...ouiBytes,
-        f.version & 0xFF,
-        Math.round(f.maxTmdsCharacterRate / 5) & 0xFF,
-        byte6,
-        byte7,
-        byte8,
-        byte9,
-      ]);
+      // The payload is the Sink Capability Data Structure (HDMI 2.1b
+      // Table 10-7), which runs to 28 bytes. This model covers PB1 through
+      // PB6 and only some bits of those, so start from the decoded payload
+      // and write back just the bits that are modelled: HDMI 2.1b section
+      // 10.3.2.1 requires a source to honour the declared length "including
+      // any Reserved bytes present at the end of the structure", and a panel's
+      // VRR range and DSC capability live in the bytes past PB6.
+      const scds = new Uint8Array(Math.max(HF_VSDB_MIN_SCDS_BYTES, block.payload.length));
+      scds.set(block.payload.slice(0, scds.length));
+
+      scds[0] = f.version & 0xFF;
+      scds[1] = Math.round(f.maxTmdsCharacterRate / 5) & 0xFF;
+      scds[2] = (scds[2] & ~HF_VSDB_PB3_MODELLED) | byte6;
+      scds[3] = byte7; // PB4 is modelled in full
+      // PB5 and PB6 are optional; a 4-byte SCDS simply ends before them.
+      if (scds.length > 4) scds[4] = (scds[4] & ~HF_VSDB_PB5_MODELLED) | byte8;
+      if (scds.length > 5) scds[5] = (scds[5] & ~HF_VSDB_PB6_MODELLED) | byte9;
+
+      return new Uint8Array([...ouiBytes, ...scds]);
     }
 
     return new Uint8Array([...ouiBytes, ...block.payload]);

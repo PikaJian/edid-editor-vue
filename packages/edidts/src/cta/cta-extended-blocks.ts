@@ -30,6 +30,9 @@ export interface ExtendedDataBlock extends CEADataBlock {
   extendedTag: ExtendedTagCode;
 }
 
+/** Colorimetry byte 4 bits this model owns: DCI-P3 only (CTA-861-G Table 70). */
+const COLORIMETRY_BYTE4_MODELLED = 0x80;
+
 /**
  * HDMI Forum EDID Extension Override Data Block (Extended Tag 0x78)
  *
@@ -571,7 +574,12 @@ function encodeColorimetryBlock(block: ColorimetryDataBlock): Uint8Array {
   if (block.bt2020RGB) byte1 |= 0x80;
   if (block.dciP3) byte2 |= 0x80;
 
-  return new Uint8Array([0x05, byte1, byte2]);
+  // CTA-861-G Table 70: byte 4 also carries MD0-MD3, the gamut-related
+  // metadata flags, in bits 3:0. Only DCI-P3 (bit 7) is modelled here, so the
+  // rest is carried through from the decoded bytes rather than cleared.
+  const metadataBits = (block.data[2] ?? 0) & ~COLORIMETRY_BYTE4_MODELLED;
+
+  return new Uint8Array([0x05, byte1, byte2 | metadataBits]);
 }
 
 function encodeHDRStaticMetadataBlock(block: HDRStaticMetadataDataBlock): Uint8Array {
