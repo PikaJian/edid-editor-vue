@@ -106,6 +106,7 @@ Things about this format that have already caused bugs:
 
 `CTA-861-G_FINAL_revised_2017.pdf` and `HDMI 2.1b-*.pdf` are not in this repo; the copies used so far live in `~/rpi_tools/HDMI/`.
 
+- **The SCDS has two containers.** The HF-VSDB (§10.3.2.1, after its IEEE OUI) and the HF-SCDB (§10.3.2.2, extended tag `79h`, after two reserved bytes) carry the identical structure, and the spec requires a source parsing one to parse the other. `decodeSinkCapabilityDataStructure` / `encodeSinkCapabilityDataStructure` are shared by both, and one UI panel renders whichever is present.
 - **The HF-VSDB payload is the Sink Capability Data Structure** (HDMI 2.1b Table 10-7), PB1 through PB28. Only PB1–PB4 are mandatory; a Sink may declare an SCDS as short as 4 bytes, so everything from PB5 on is optional in the model. Section 10.3.2.1 requires a source to honour the declared length **"including any Reserved bytes present at the end"** — never rebuild this block at a fixed size.
 - **PB5's bits are easy to transpose**: bit 0 is `FAPA_start_location`, bit 2 is `FVA`, bit 6 is `QMS`. An earlier version of this code had FAPA and FVA swapped and read QMS as "VRR".
 - **VRR is not a flag.** A Sink declares it through `VRRMIN` (PB6 bits 5:0) and `VRRMAX` (PB6 bits 7:6 plus all of PB7); a range of 0 means no VRR. DSC capability lives in PB8–PB10, not in a single bit.
@@ -120,6 +121,7 @@ Things about this format that have already caused bugs:
 
 - **In the Display Range Limits descriptor (tag `FDh`), byte 4 is *not* reserved** — it is the rate offset flags (§3.10.3.3 Table 3.26). Every other display descriptor really does have a fixed `(00 00 00 XX 00)h` preamble, which is why the generic encoder clears byte 4 and `encodeRangeLimits` has to overwrite it.
 - The offset tests are **asymmetric on purpose**: bits 1:0 cover the vertical rates and bits 3:2 the horizontal ones, and the *maximum* is offset by 255 whenever the pair's high bit is set (`10b` **and** `11b`) while the *minimum* is offset only when the pair is exactly `11b`. Treating "the pair is nonzero" as "offset both" adds 255 to the minimum in the common `10b` case.
+- **With CVT support, byte 9 alone overstates the maximum pixel clock.** Table 3.28 makes byte 9 the value rounded *up* to a 10 MHz multiple and byte 12 bits 7:2 subtract from it in 0.25 MHz steps, so ignoring byte 12 is wrong by up to 15.75 MHz. `maxPixelClock` holds the resolved value and encoding derives both bytes back; rounding up always leaves under 10 MHz to back off, so at most 39 of the field's 63 steps are ever used.
 - `DisplayRangeLimitsDescriptor` therefore stores **resolved** rates (1–510), and `encode()` derives the flags back from them rather than keeping a separate flags field that could drift out of sync. A modern high-refresh panel needs this: ignoring byte 4 reports a 380 kHz maximum as 125 kHz, and for a display whose real maximum is under `255 + min` it inverts the range outright.
 
 ## Important Conventions

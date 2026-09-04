@@ -149,7 +149,10 @@ function matchesSection(section: string, block: WalkedBlock): boolean {
     case 'cea-audio': return block.tag === 0x01
     case 'cea-speakers': return block.tag === 0x04
     case 'cea-vendor-hdmi': return block.tag === 0x03 && block.ieeeOui === 0x000C03
-    case 'cea-vendor-forum': return block.tag === 0x03 && block.ieeeOui === 0xC45DD8
+    // The HF-VSDB and the HF-SCDB carry the same structure and share a panel.
+    case 'cea-vendor-forum':
+      return (block.tag === 0x03 && block.ieeeOui === 0xC45DD8)
+        || (block.tag === 0x07 && block.extendedTag === 0x79)
     case 'cea-video-cap': return block.tag === 0x07 && block.extendedTag === 0x00
     case 'cea-colorimetry': return block.tag === 0x07 && block.extendedTag === 0x05
     case 'cea-hdr': return block.tag === 0x07 && (block.extendedTag === 0x06 || block.extendedTag === 0x07)

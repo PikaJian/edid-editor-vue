@@ -48,6 +48,7 @@ export type {
   SpeakerLocationDataBlock,
   InfoFrameDataBlock,
   HfEeodbDataBlock,
+  HfScdbDataBlock,
 } from './cta-extended-blocks';
 
 // CEA/CTA Extension Block
@@ -76,4 +77,5 @@ export type {
   VTBExtensionBlock,
   BlockMapExtension,
   DisplayIDExtensionBlock,
+  SinkCapabilityDataStructure,
 } from './extension-block';

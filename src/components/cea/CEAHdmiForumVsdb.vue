@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { CEAExtensionBlock, VendorSpecificDataBlock } from 'edidts'
+import type { CEAExtensionBlock, SinkCapabilityDataStructure, VendorSpecificDataBlock } from 'edidts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -15,11 +15,39 @@ const emit = defineEmits<{
   remove: []
 }>()
 
-const forum = computed(() => (
-  props.cea.dataBlocks.find(
-    b => b.tag === 0x03 && (b as VendorSpecificDataBlock).ieeeOui === 0xC45DD8
-  ) as VendorSpecificDataBlock | undefined
-)?.hdmiForum)
+/**
+ * The Sink Capability Data Structure, from whichever block carries it.
+ *
+ * HDMI 2.1b defines two containers for the same structure: the HF-VSDB
+ * (section 10.3.2.1) and the HF-SCDB (10.3.2.2), the latter for sinks where a
+ * second Vendor Specific Data Block is unwanted. A sink includes one or the
+ * other, so this panel shows whichever is present.
+ */
+const source = computed<'vsdb' | 'scdb' | null>(() => {
+  const blocks = props.cea.dataBlocks
+  if (blocks.some(b => b.tag === 0x03 && (b as VendorSpecificDataBlock).ieeeOui === 0xC45DD8)) {
+    return 'vsdb'
+  }
+  if (blocks.some(b => b.tag === 0x07 && (b as { extendedTag?: number }).extendedTag === 0x79)) {
+    return 'scdb'
+  }
+  return null
+})
+
+const forum = computed(() => {
+  if (source.value === 'scdb') {
+    return (
+      props.cea.dataBlocks.find(
+        b => b.tag === 0x07 && (b as { extendedTag?: number }).extendedTag === 0x79,
+      ) as { scds?: SinkCapabilityDataStructure } | undefined
+    )?.scds
+  }
+  return (
+    props.cea.dataBlocks.find(
+      b => b.tag === 0x03 && (b as VendorSpecificDataBlock).ieeeOui === 0xC45DD8
+    ) as VendorSpecificDataBlock | undefined
+  )?.hdmiForum
+})
 
 /** DSC colour depths the sink accepts, per HDMI 2.1b Table 10-7 PB8. */
 const dscColorDepths = computed(() => {
@@ -43,7 +71,9 @@ function parseNumber(value: string | number): number {
 }
 
 function updateField(field: string, value: unknown) {
-  emit('update', `hdmiForumVendor.${field}`, value)
+  // The two containers hold the same structure but live in different blocks,
+  // so the handler needs to know which one to write back to.
+  emit('update', `${source.value === 'scdb' ? 'hfScdb' : 'hdmiForumVendor'}.${field}`, value)
 }
 
 function onMaxFrlRateChange(event: Event) {
@@ -67,7 +97,7 @@ function frlRateLabel(rate: number): string {
 <template>
   <Card>
     <CardHeader class="flex flex-row items-center justify-between">
-      <CardTitle>HDMI Forum VSDB (2.0/2.1)</CardTitle>
+      <CardTitle>{{ source === 'scdb' ? 'HDMI Forum SCDB (2.1)' : 'HDMI Forum VSDB (2.0/2.1)' }}</CardTitle>
       <Button
         v-if="forum"
         variant="ghost"
@@ -272,7 +302,7 @@ function frlRateLabel(rate: number): string {
           </div>
         </section>
       </template>
-      <p v-else class="text-muted-foreground">No HDMI Forum VSDB present.</p>
+      <p v-else class="text-muted-foreground">No HDMI Forum VSDB or SCDB present.</p>
     </CardContent>
   </Card>
 </template>

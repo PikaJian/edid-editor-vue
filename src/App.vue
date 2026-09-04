@@ -514,6 +514,13 @@ function updateCEA(field: string, value: unknown) {
       const key = field.slice('hdmiVendor.'.length)
       ;(vsdb.hdmi as unknown as Record<string, unknown>)[key] = value
     }
+  } else if (field.startsWith('hfScdb.')) {
+    const scdb = cea.dataBlocks.find(
+      b => b.tag === 0x07 && (b as { extendedTag?: number }).extendedTag === 0x79
+    ) as { scds?: Record<string, unknown> } | undefined
+    if (scdb?.scds) {
+      scdb.scds[field.slice('hfScdb.'.length)] = value
+    }
   } else if (field.startsWith('hdmiForumVendor.')) {
     const hf = cea.dataBlocks.find(
       b => b.tag === 0x03 && (b as VendorSpecificDataBlock).ieeeOui === 0xC45DD8

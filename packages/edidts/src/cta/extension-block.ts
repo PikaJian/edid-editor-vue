@@ -40,18 +40,160 @@ export type { VTBExtensionBlock, VTBDetailedTiming };
 /** Bytes 1 through 126 of a DisplayID EDID Extension Block (v2.1a Section 2.1). */
 const DISPLAY_ID_EDID_SECTION_LENGTH = 126;
 
-/**
- * Shortest legal Sink Capability Data Structure (HDMI 2.1b Table 10-7 notes:
- * "The minimum length of the SCDS is 4"). The model covers PB1 through PB6,
- * but a shorter block is valid and must not be padded out to that.
- */
-const HF_VSDB_MIN_SCDS_BYTES = 4;
-
 /** Shortest legal H14b-VSDB payload: the two Source Physical Address bytes. */
 const H14B_VSDB_MIN_PAYLOAD_BYTES = 2;
 
 /** H14b-VSDB flags-byte bits this model owns; 0Fh holds latency-present flags. */
 const H14B_VSDB_FLAGS_MODELLED = 0xF8;
+
+/** Shortest legal SCDS (HDMI 2.1b Table 10-7: "The minimum length is 4"). */
+const SCDS_MIN_BYTES = 4;
+
+/**
+ * Decodes a Sink Capability Data Structure, HDMI 2.1b Table 10-7.
+ *
+ * `scds` starts at PB1 — for an HF-VSDB that is the byte after the IEEE OUI,
+ * for an HF-SCDB the byte after its two reserved bytes.
+ */
+export function decodeSinkCapabilityDataStructure(scds: Uint8Array): SinkCapabilityDataStructure {
+  const pb = (n: number): number => scds[n - 1] ?? 0;
+  const pb3 = pb(3);
+  const pb4 = pb(4);
+
+  const decoded: SinkCapabilityDataStructure = {
+    version: pb(1),
+    maxTmdsCharacterRate: pb(2) * 5,
+
+    scdc: (pb3 & 0x80) !== 0,
+    rr: (pb3 & 0x40) !== 0,
+    cableStatus: (pb3 & 0x20) !== 0,
+    ccbpci: (pb3 & 0x10) !== 0,
+    lte340McscScramble: (pb3 & 0x08) !== 0,
+    independentView: (pb3 & 0x04) !== 0,
+    dualView: (pb3 & 0x02) !== 0,
+    osd3d: (pb3 & 0x01) !== 0,
+
+    maxFrlRate: (pb4 >> 4) & 0x0F,
+    uhdVic: (pb4 & 0x08) !== 0,
+    dc48bit420: (pb4 & 0x04) !== 0,
+    dc36bit420: (pb4 & 0x02) !== 0,
+    dc30bit420: (pb4 & 0x01) !== 0,
+  };
+
+  if (scds.length >= 5) {
+    const pb5 = pb(5);
+    decoded.fapaEndExtended = (pb5 & 0x80) !== 0;
+    decoded.qms = (pb5 & 0x40) !== 0;
+    decoded.mDelta = (pb5 & 0x20) !== 0;
+    decoded.cinemaVrr = (pb5 & 0x10) !== 0;
+    decoded.negMvrr = (pb5 & 0x08) !== 0;
+    decoded.fva = (pb5 & 0x04) !== 0;
+    decoded.allm = (pb5 & 0x02) !== 0;
+    decoded.fapaStartLocation = (pb5 & 0x01) !== 0;
+  }
+
+  // VRRMIN is PB6 bits 5:0; VRRMAX spans PB6 bits 7:6 and all of PB7.
+  if (scds.length >= 7) {
+    decoded.vrrMin = pb(6) & 0x3F;
+    decoded.vrrMax = (((pb(6) >> 6) & 0x03) << 8) | pb(7);
+  }
+
+  if (scds.length >= 10) {
+    const pb8 = pb(8);
+    const pb9 = pb(9);
+    decoded.dsc = {
+      dsc1p2: (pb8 & 0x80) !== 0,
+      native420: (pb8 & 0x40) !== 0,
+      qmsTfrMax: (pb8 & 0x20) !== 0,
+      qmsTfrMin: (pb8 & 0x10) !== 0,
+      allBpp: (pb8 & 0x08) !== 0,
+      bpc16: (pb8 & 0x04) !== 0,
+      bpc12: (pb8 & 0x02) !== 0,
+      bpc10: (pb8 & 0x01) !== 0,
+      maxFrlRate: (pb9 >> 4) & 0x0F,
+      maxSlices: pb9 & 0x0F,
+      totalChunkKBytes: pb(10) & 0x3F,
+    };
+  }
+
+  return decoded;
+}
+
+/**
+ * Inverse of decodeSinkCapabilityDataStructure.
+ *
+ * @param original The bytes this SCDS was decoded from. Section 10.3.2.1
+ *   requires honouring the declared length "including any Reserved bytes
+ *   present at the end", and PB11 onward is reserved space with no meaning
+ *   here, so the length and the unmodelled bits are carried through.
+ */
+export function encodeSinkCapabilityDataStructure(
+  f: SinkCapabilityDataStructure,
+  original: Uint8Array,
+): Uint8Array {
+  const scds = new Uint8Array(Math.max(SCDS_MIN_BYTES, original.length));
+  scds.set(original.slice(0, scds.length));
+
+  scds[0] = f.version & 0xFF;
+  scds[1] = Math.round(f.maxTmdsCharacterRate / 5) & 0xFF;
+
+  let pb3 = 0;
+  if (f.scdc) pb3 |= 0x80;
+  if (f.rr) pb3 |= 0x40;
+  if (f.cableStatus) pb3 |= 0x20;
+  if (f.ccbpci) pb3 |= 0x10;
+  if (f.lte340McscScramble) pb3 |= 0x08;
+  if (f.independentView) pb3 |= 0x04;
+  if (f.dualView) pb3 |= 0x02;
+  if (f.osd3d) pb3 |= 0x01;
+  scds[2] = pb3;
+
+  let pb4 = (f.maxFrlRate & 0x0F) << 4;
+  if (f.uhdVic) pb4 |= 0x08;
+  if (f.dc48bit420) pb4 |= 0x04;
+  if (f.dc36bit420) pb4 |= 0x02;
+  if (f.dc30bit420) pb4 |= 0x01;
+  scds[3] = pb4;
+
+  if (scds.length > 4) {
+    let pb5 = 0;
+    if (f.fapaEndExtended) pb5 |= 0x80;
+    if (f.qms) pb5 |= 0x40;
+    if (f.mDelta) pb5 |= 0x20;
+    if (f.cinemaVrr) pb5 |= 0x10;
+    if (f.negMvrr) pb5 |= 0x08;
+    if (f.fva) pb5 |= 0x04;
+    if (f.allm) pb5 |= 0x02;
+    if (f.fapaStartLocation) pb5 |= 0x01;
+    scds[4] = pb5;
+  }
+
+  if (scds.length > 6) {
+    const vrrMin = f.vrrMin ?? 0;
+    const vrrMax = f.vrrMax ?? 0;
+    scds[5] = (((vrrMax >> 8) & 0x03) << 6) | (vrrMin & 0x3F);
+    scds[6] = vrrMax & 0xFF;
+  }
+
+  if (scds.length > 9 && f.dsc) {
+    const d = f.dsc;
+    let pb8 = 0;
+    if (d.dsc1p2) pb8 |= 0x80;
+    if (d.native420) pb8 |= 0x40;
+    if (d.qmsTfrMax) pb8 |= 0x20;
+    if (d.qmsTfrMin) pb8 |= 0x10;
+    if (d.allBpp) pb8 |= 0x08;
+    if (d.bpc16) pb8 |= 0x04;
+    if (d.bpc12) pb8 |= 0x02;
+    if (d.bpc10) pb8 |= 0x01;
+    scds[7] = pb8;
+    scds[8] = ((d.maxFrlRate & 0x0F) << 4) | (d.maxSlices & 0x0F);
+    // PB10 bits 7:6 are Reserved(0); keep whatever was decoded there.
+    scds[9] = (scds[9] & 0xC0) | (d.totalChunkKBytes & 0x3F);
+  }
+
+  return scds;
+}
 
 /**
  * Reads the HDMI Forum EDID Extension Override Data Block, if the CEA
@@ -188,7 +330,21 @@ export interface VendorSpecificDataBlock extends CEADataBlock {
    * may declare an SCDS as short as 4 bytes, so the later groups are undefined
    * when the block does not reach them.
    */
-  hdmiForum?: {
+  hdmiForum?: SinkCapabilityDataStructure;
+}
+
+/**
+ * Sink Capability Data Structure, HDMI 2.1b Table 10-7 (PB1..PB28).
+ *
+ * Carried two ways: as the payload of the HF-VSDB after its IEEE OUI
+ * (section 10.3.2.1) and as the payload of the HF-SCDB after two reserved
+ * bytes (section 10.3.2.2). The spec requires a source that parses one to
+ * parse the other, so both decode into this.
+ *
+ * Only PB1..PB4 are mandatory — a Sink may declare an SCDS as short as 4
+ * bytes — so every later group is optional rather than defaulted to false.
+ */
+export interface SinkCapabilityDataStructure {
     version: number;              // PB1
     maxTmdsCharacterRate: number; // PB2, in MHz (0 = use the H14b-VSDB value)
     // PB3
@@ -233,7 +389,6 @@ export interface VendorSpecificDataBlock extends CEADataBlock {
       maxSlices: number;
       totalChunkKBytes: number;
     };
-  };
 }
 
 export interface SpeakerAllocationBlock extends CEADataBlock {
@@ -542,68 +697,10 @@ export class ExtensionBlockParser {
       };
     }
 
-    // HDMI Forum Vendor Specific (OUI 0xC45DD8). The payload is the Sink
-    // Capability Data Structure, PB1..PB28 of HDMI 2.1b Table 10-7.
-    if (ieeeOui === 0xC45DD8 && payload.length >= 4) {
-      const pb = (n: number): number => payload[n - 1] ?? 0;
-      const pb3 = pb(3);
-      const pb4 = pb(4);
-
-      block.hdmiForum = {
-        version: pb(1),
-        maxTmdsCharacterRate: pb(2) * 5,
-
-        scdc: (pb3 & 0x80) !== 0,
-        rr: (pb3 & 0x40) !== 0,
-        cableStatus: (pb3 & 0x20) !== 0,
-        ccbpci: (pb3 & 0x10) !== 0,
-        lte340McscScramble: (pb3 & 0x08) !== 0,
-        independentView: (pb3 & 0x04) !== 0,
-        dualView: (pb3 & 0x02) !== 0,
-        osd3d: (pb3 & 0x01) !== 0,
-
-        maxFrlRate: (pb4 >> 4) & 0x0F,
-        uhdVic: (pb4 & 0x08) !== 0,
-        dc48bit420: (pb4 & 0x04) !== 0,
-        dc36bit420: (pb4 & 0x02) !== 0,
-        dc30bit420: (pb4 & 0x01) !== 0,
-      };
-
-      if (payload.length >= 5) {
-        const pb5 = pb(5);
-        block.hdmiForum.fapaEndExtended = (pb5 & 0x80) !== 0;
-        block.hdmiForum.qms = (pb5 & 0x40) !== 0;
-        block.hdmiForum.mDelta = (pb5 & 0x20) !== 0;
-        block.hdmiForum.cinemaVrr = (pb5 & 0x10) !== 0;
-        block.hdmiForum.negMvrr = (pb5 & 0x08) !== 0;
-        block.hdmiForum.fva = (pb5 & 0x04) !== 0;
-        block.hdmiForum.allm = (pb5 & 0x02) !== 0;
-        block.hdmiForum.fapaStartLocation = (pb5 & 0x01) !== 0;
-      }
-
-      // VRRMIN is PB6 bits 5:0; VRRMAX spans PB6 bits 7:6 and all of PB7.
-      if (payload.length >= 7) {
-        block.hdmiForum.vrrMin = pb(6) & 0x3F;
-        block.hdmiForum.vrrMax = (((pb(6) >> 6) & 0x03) << 8) | pb(7);
-      }
-
-      if (payload.length >= 10) {
-        const pb8 = pb(8);
-        const pb9 = pb(9);
-        block.hdmiForum.dsc = {
-          dsc1p2: (pb8 & 0x80) !== 0,
-          native420: (pb8 & 0x40) !== 0,
-          qmsTfrMax: (pb8 & 0x20) !== 0,
-          qmsTfrMin: (pb8 & 0x10) !== 0,
-          allBpp: (pb8 & 0x08) !== 0,
-          bpc16: (pb8 & 0x04) !== 0,
-          bpc12: (pb8 & 0x02) !== 0,
-          bpc10: (pb8 & 0x01) !== 0,
-          maxFrlRate: (pb9 >> 4) & 0x0F,
-          maxSlices: pb9 & 0x0F,
-          totalChunkKBytes: pb(10) & 0x3F,
-        };
-      }
+    // HDMI Forum Vendor Specific (OUI 0xC45DD8). Everything after the OUI is
+    // the Sink Capability Data Structure.
+    if (ieeeOui === 0xC45DD8 && payload.length >= SCDS_MIN_BYTES) {
+      block.hdmiForum = decodeSinkCapabilityDataStructure(payload);
     }
 
     return block;
@@ -838,73 +935,10 @@ export class ExtensionBlockParser {
     }
 
     if (block.ieeeOui === 0xC45DD8 && block.hdmiForum) {
-      const f = block.hdmiForum;
-
-      // Keep the declared SCDS length: HDMI 2.1b section 10.3.2.1 requires a
-      // source to honour it "including any Reserved bytes present at the end",
-      // and PB11 onward is reserved space this model does not interpret.
-      const scds = new Uint8Array(Math.max(HF_VSDB_MIN_SCDS_BYTES, block.payload.length));
-      scds.set(block.payload.slice(0, scds.length));
-
-      scds[0] = f.version & 0xFF;
-      scds[1] = Math.round(f.maxTmdsCharacterRate / 5) & 0xFF;
-
-      let pb3 = 0;
-      if (f.scdc) pb3 |= 0x80;
-      if (f.rr) pb3 |= 0x40;
-      if (f.cableStatus) pb3 |= 0x20;
-      if (f.ccbpci) pb3 |= 0x10;
-      if (f.lte340McscScramble) pb3 |= 0x08;
-      if (f.independentView) pb3 |= 0x04;
-      if (f.dualView) pb3 |= 0x02;
-      if (f.osd3d) pb3 |= 0x01;
-      scds[2] = pb3;
-
-      let pb4 = (f.maxFrlRate & 0x0F) << 4;
-      if (f.uhdVic) pb4 |= 0x08;
-      if (f.dc48bit420) pb4 |= 0x04;
-      if (f.dc36bit420) pb4 |= 0x02;
-      if (f.dc30bit420) pb4 |= 0x01;
-      scds[3] = pb4;
-
-      if (scds.length > 4) {
-        let pb5 = 0;
-        if (f.fapaEndExtended) pb5 |= 0x80;
-        if (f.qms) pb5 |= 0x40;
-        if (f.mDelta) pb5 |= 0x20;
-        if (f.cinemaVrr) pb5 |= 0x10;
-        if (f.negMvrr) pb5 |= 0x08;
-        if (f.fva) pb5 |= 0x04;
-        if (f.allm) pb5 |= 0x02;
-        if (f.fapaStartLocation) pb5 |= 0x01;
-        scds[4] = pb5;
-      }
-
-      if (scds.length > 6) {
-        const vrrMin = f.vrrMin ?? 0;
-        const vrrMax = f.vrrMax ?? 0;
-        scds[5] = ((vrrMax >> 8) & 0x03) << 6 | (vrrMin & 0x3F);
-        scds[6] = vrrMax & 0xFF;
-      }
-
-      if (scds.length > 9 && f.dsc) {
-        const d = f.dsc;
-        let pb8 = 0;
-        if (d.dsc1p2) pb8 |= 0x80;
-        if (d.native420) pb8 |= 0x40;
-        if (d.qmsTfrMax) pb8 |= 0x20;
-        if (d.qmsTfrMin) pb8 |= 0x10;
-        if (d.allBpp) pb8 |= 0x08;
-        if (d.bpc16) pb8 |= 0x04;
-        if (d.bpc12) pb8 |= 0x02;
-        if (d.bpc10) pb8 |= 0x01;
-        scds[7] = pb8;
-        scds[8] = ((d.maxFrlRate & 0x0F) << 4) | (d.maxSlices & 0x0F);
-        // PB10 bits 7:6 are Reserved(0); keep whatever was decoded there.
-        scds[9] = (scds[9] & 0xC0) | (d.totalChunkKBytes & 0x3F);
-      }
-
-      return new Uint8Array([...ouiBytes, ...scds]);
+      return new Uint8Array([
+        ...ouiBytes,
+        ...encodeSinkCapabilityDataStructure(block.hdmiForum, block.payload),
+      ]);
     }
 
     return new Uint8Array([...ouiBytes, ...block.payload]);

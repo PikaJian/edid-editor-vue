@@ -7,6 +7,11 @@
 
 import type { CEADataBlock } from './extension-block';
 import { decodeShortVideoDescriptor, encodeShortVideoDescriptor } from './svd';
+import {
+  decodeSinkCapabilityDataStructure,
+  encodeSinkCapabilityDataStructure,
+  type SinkCapabilityDataStructure,
+} from './extension-block';
 
 export type ExtendedTagCode =
   | 0x00  // Video Capability Data Block
@@ -24,6 +29,7 @@ export type ExtendedTagCode =
   | 0x14  // Speaker Location Data Block
   | 0x20  // InfoFrame Data Block
   | 0x78  // HDMI Forum EDID Extension Override Data Block (HF-EEODB)
+  | 0x79  // HDMI Forum Sink Capability Data Block (HF-SCDB)
   | number;
 
 export interface ExtendedDataBlock extends CEADataBlock {
@@ -47,6 +53,22 @@ export interface HfEeodbDataBlock extends ExtendedDataBlock {
   extendedTag: 0x78;
   /** Total number of EDID extension blocks that follow the base block. */
   extensionBlockCount: number;
+}
+
+/**
+ * HDMI Forum Sink Capability Data Block (Extended Tag 0x79)
+ *
+ * HDMI 2.1b section 10.3.2.2. Carries the same Sink Capability Data Structure
+ * as the HF-VSDB, for sinks where a second Vendor Specific Data Block is not
+ * desirable. Bytes 2 and 3 of the payload are Reserved(0) and the SCDS starts
+ * at byte 4. A source that parses one form "shall also be capable of parsing"
+ * the other, so both decode into the same structure.
+ */
+export interface HfScdbDataBlock extends ExtendedDataBlock {
+  extendedTag: 0x79;
+  scds: SinkCapabilityDataStructure;
+  /** The two Reserved bytes, kept so encoding cannot invent a value. */
+  reservedBytes: Uint8Array;
 }
 
 /**
@@ -214,6 +236,7 @@ export type CTAExtendedDataBlock =
   | SpeakerLocationDataBlock
   | InfoFrameDataBlock
   | HfEeodbDataBlock
+  | HfScdbDataBlock
   | ExtendedDataBlock;
 
 /**
@@ -252,6 +275,8 @@ export function decodeExtendedDataBlock(blockData: Uint8Array): CTAExtendedDataB
       return decodeVendorSpecificVideoBlock(base, payload);
     case 0x78:
       return decodeHfEeodbBlock(base, payload);
+    case 0x79:
+      return decodeHfScdbBlock(base, payload);
     case 0x11:
       return decodeVendorSpecificAudioBlock(base, payload);
     case 0x13:
@@ -519,6 +544,31 @@ function encodeHfEeodbBlock(block: HfEeodbDataBlock): Uint8Array {
   return new Uint8Array([0x78, block.extensionBlockCount & 0xff]);
 }
 
+/** Payload bytes 2 and 3, Reserved(0), before the SCDS begins at byte 4. */
+const HF_SCDB_RESERVED_BYTES = 2;
+
+function decodeHfScdbBlock(base: ExtendedDataBlock, payload: Uint8Array): HfScdbDataBlock {
+  return {
+    ...base,
+    extendedTag: 0x79,
+    reservedBytes: payload.slice(0, HF_SCDB_RESERVED_BYTES),
+    scds: decodeSinkCapabilityDataStructure(payload.slice(HF_SCDB_RESERVED_BYTES)),
+  };
+}
+
+function encodeHfScdbBlock(block: HfScdbDataBlock): Uint8Array {
+  const reserved = new Uint8Array(HF_SCDB_RESERVED_BYTES);
+  reserved.set(block.reservedBytes.slice(0, HF_SCDB_RESERVED_BYTES));
+
+  const original = block.data.slice(1 + HF_SCDB_RESERVED_BYTES);
+
+  return new Uint8Array([
+    0x79,
+    ...reserved,
+    ...encodeSinkCapabilityDataStructure(block.scds, original),
+  ]);
+}
+
 export function encodeExtendedDataBlock(block: CTAExtendedDataBlock): Uint8Array {
   switch (block.extendedTag) {
     case 0x00:
@@ -533,6 +583,8 @@ export function encodeExtendedDataBlock(block: CTAExtendedDataBlock): Uint8Array
       return encodeYCbCr420CapabilityMapBlock(block as YCbCr420CapabilityMapDataBlock);
     case 0x78:
       return encodeHfEeodbBlock(block as HfEeodbDataBlock);
+    case 0x79:
+      return encodeHfScdbBlock(block as HfScdbDataBlock);
     default:
       // Return original data for unhandled types
       return block.data;

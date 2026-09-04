@@ -46,7 +46,13 @@ const ceaChildren = computed(() => {
   const hasVsdb = (oui: number) =>
     blocks.some(b => b.tag === 0x03 && (b as { ieeeOui?: number }).ieeeOui === oui)
   if (hasVsdb(0x000C03)) items.push({ id: 'cea-vendor-hdmi', label: 'HDMI 1.4 VSDB' })
-  if (hasVsdb(0xC45DD8)) items.push({ id: 'cea-vendor-forum', label: 'HDMI Forum VSDB' })
+  const hasForumScdb = blocks.some(
+    b => b.tag === 0x07 && (b as { extendedTag?: number }).extendedTag === 0x79
+  )
+  // The HF-VSDB and HF-SCDB carry the same structure; one panel shows either.
+  if (hasVsdb(0xC45DD8) || hasForumScdb) {
+    items.push({ id: 'cea-vendor-forum', label: hasForumScdb ? 'HDMI Forum SCDB' : 'HDMI Forum VSDB' })
+  }
   const hasExtTag = (tag: number) =>
     blocks.some(b => b.tag === 0x07 && (b as { extendedTag?: number }).extendedTag === tag)
   if (hasExtTag(0x05)) items.push({ id: 'cea-colorimetry', label: 'Colorimetry' })

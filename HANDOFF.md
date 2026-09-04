@@ -16,7 +16,7 @@ Three features are documented, in the order their sections appear:
 |---|---|
 | Branch | `main` only — every feature branch described here is merged and deleted. |
 | PR | [#1](https://github.com/PikaJian/edid-editor-vue/pull/1) — **merged** as `763168a`; the feature commit is `2832563`. [#2](https://github.com/PikaJian/edid-editor-vue/pull/2) — **merged** as `53a6fa2`; Windows extension blocks via WMI, commits `871f0e0`/`f0f0af9`/`ca88bf5` |
-| Tests | 210 passing (`npm test`), plus 13 Rust (`cd src-tauri && cargo test --lib`, 1 more `#[ignore]`d) |
+| Tests | 226 passing (`npm test`), plus 13 Rust (`cd src-tauri && cargo test --lib`, 1 more `#[ignore]`d) |
 | Release | [v0.1.4](https://github.com/PikaJian/edid-editor-vue/releases/tag/v0.1.4) is current — four EDID correctness fixes, three of which stopped saving from silently rewriting a valid EDID (`7cd272b`, `95ee323`, `9cc731e`, `db4260c`). Older releases are superseded and say so: v0.1.0's Windows build lists every monitor ever attached (`37cb884`), v0.1.1's returns only base blocks (#2), and v0.1.2/v0.1.3 both mis-report Display Range Limits and HDMI 2.1 capability, and corrupt those fields on save. |
 | Untracked | `edid.bin` (MSI MAG 272URDF) and `GSM83CD_0.bin` (LG TV SSCR2) in the repo root. Both are committed as hex fixtures, so the binaries themselves are deliberately not tracked. |
 
@@ -83,6 +83,15 @@ The format traps that cost time (minus-one encoding, per-type pixel clock units,
 - `byteRanges.ts` — per-block hex highlighting, walking the encoded bytes.
 - `App.vue` — an amber warning banner when `extensionCountMismatch` is set, worded to name the HF-EEODB when one is present.
 - `cta/cta-extended-blocks.ts` — HF-EEODB (`0x78`) decode/encode; `CEAOverview.vue` shows the count.
+
+## 3e. Issue #5 is closed out
+
+All six items from [#5](https://github.com/PikaJian/edid-editor-vue/issues/5) are done. The last two:
+
+- **CVT pixel clock precision.** Byte 12 bits 7:2 back off from byte 9 in 0.25 MHz steps (E-EDID A.2 Table 3.28), so a CVT descriptor's maximum pixel clock was overstated by up to 15.75 MHz and encoding cleared the field. See **CLAUDE.md → Base EDID specifics**.
+- **HF-SCDB (`79h`).** The same Sink Capability Data Structure as the HF-VSDB, in a different container. Decoding is now shared between the two, which is the arrangement that should have existed when the VSDB bit-mapping bugs were fixed — the SCDS logic living in one place is what makes "parse either form" free.
+
+Still open from that issue's closing note: the repo needs more "known EDID → expected semantic value" assertions. `svd.test.ts`, `lg-tv-sscr2.test.ts`, `hf-scdb.test.ts` and `cvt-pixel-clock-precision.test.ts` are that shape; the older suites are still mostly round-trip.
 
 ## 3d. SVD 8-bit VICs — the bug a round-trip test cannot see
 

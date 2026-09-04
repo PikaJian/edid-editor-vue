@@ -44,7 +44,13 @@ export interface DisplayRangeLimitsDescriptor extends BaseDisplayDescriptor {
   maxVerticalRate: number;      // Hz
   minHorizontalRate: number;    // kHz
   maxHorizontalRate: number;    // kHz
-  maxPixelClock: number;        // MHz (in 10 MHz increments)
+  /**
+   * MHz. Byte 9 stores this in 10 MHz units, but a CVT descriptor refines it
+   * with byte 12's Additional Pixel Clock Precision field, so with CVT support
+   * this carries 0.25 MHz resolution and byte 9 alone would overstate it by up
+   * to 15.75 MHz (E-EDID A.2 Table 3.28).
+   */
+  maxPixelClock: number;        // MHz
   timingSupport: 'default-gtf' | 'range-limits-only' | 'secondary-gtf' | 'cvt';
   // Secondary GTF parameters (if timingSupport === 'secondary-gtf')
   secondaryGTF?: {
@@ -302,6 +308,15 @@ export class DisplayDescriptorParser {
     };
   }
 
+  /** CVT byte 12's Additional Pixel Clock Precision unit (Table 3.28). */
+  private static readonly CVT_PIXEL_CLOCK_STEP_MHZ = 0.25;
+
+  /** 0.25 MHz steps in the 10 MHz that byte 9 counts in. */
+  private static readonly CVT_QUARTERS_PER_STEP = 40;
+
+  /** Byte 12 bits 7:2 hold at most 63 steps, i.e. 15.75 MHz. */
+  private static readonly CVT_MAX_PRECISION_STEPS = 0x3F;
+
   /** Byte 4's offsets are always 255 of the field's own unit (Table 3.26). */
   private static readonly RANGE_RATE_OFFSET = 255;
 
@@ -386,6 +401,11 @@ export class DisplayDescriptorParser {
     if (timingSupport === 'cvt') {
       const cvtVersion = ((data[11] >> 4) & 0x0F) * 10 + (data[11] & 0x0F);
       const maxPixelsHigh = ((data[12] & 0x03) << 8) | data[13];
+
+      // Table 3.28: Max Pix Clk = (Byte 9 x 10) - (Byte 12 bits 7:2 x 0.25),
+      // byte 9 having been rounded *up* to the next 10 MHz multiple.
+      descriptor.maxPixelClock =
+        data[9] * 10 - ((data[12] >> 2) & 0x3F) * this.CVT_PIXEL_CLOCK_STEP_MHZ;
       const arByte = data[14];
       const prefAR = (data[15] >> 5) & 0x07;
 
@@ -465,8 +485,18 @@ export class DisplayDescriptorParser {
       const version = Math.max(0, Math.min(99, Math.round(cvt.version)));
       const maxActivePixels = Math.max(0, Math.min(0x3FF, Math.round(cvt.maxActivePixelsPerLine / 8)));
 
+      // Byte 9 rounds up to the next 10 MHz; byte 12 carries the difference in
+      // 0.25 MHz steps, so the pair reproduces the value byte 9 alone cannot.
+      const quarters = Math.round(desc.maxPixelClock / this.CVT_PIXEL_CLOCK_STEP_MHZ);
+      const roundedUpTens = Math.ceil(quarters / this.CVT_QUARTERS_PER_STEP);
+      const precision = Math.min(
+        this.CVT_MAX_PRECISION_STEPS,
+        roundedUpTens * this.CVT_QUARTERS_PER_STEP - quarters,
+      );
+      bytes[9] = roundedUpTens & 0xFF;
+
       bytes[11] = ((Math.floor(version / 10) & 0x0F) << 4) | (version % 10);
-      bytes[12] = (maxActivePixels >> 8) & 0x03;
+      bytes[12] = ((precision & 0x3F) << 2) | ((maxActivePixels >> 8) & 0x03);
       bytes[13] = maxActivePixels & 0xFF;
       bytes[14] = this.encodeRangeCvtAspectRatios(cvt.aspectRatios);
       bytes[15] = (this.rangeCvtAspectRatioCode(cvt.preferredAspectRatio) << 5)
