@@ -86,3 +86,55 @@ export const MSI_MAG272URDF_DISPLAYID_V1_HEX =
   "00,00,00,00,00,00,00,00,00,00,00,00,00,00,F1,90";
 
 export const MSI_MAG272URDF_DISPLAYID_V1 = hexToUint8Array(MSI_MAG272URDF_DISPLAYID_V1_HEX);
+
+
+// LG TV SSCR2 (512 bytes): base block, a Block Map extension, a CTA-861
+// extension and a DisplayID extension.
+//
+// Three things make this worth keeping:
+//   1. Its Video Data Block contains SVDs DBh and DAh — VICs 219 and 218, the
+//      Cinema 4K 120/100 Hz formats. Masking an SVD with 7Fh reads those as
+//      VICs 91 and 90 (2560x1080) with the native flag set, and re-encodes
+//      byte for byte, so only a semantic assertion catches it.
+//   2. Its Short Audio Descriptors include E-AC-3 and MAT, whose third byte
+//      this package does not interpret and must therefore carry through.
+//   3. Its Block Map is malformed: a stray 6Bh sits in a slot no block uses,
+//      and the stored checksum is the one that byte's absence would produce.
+//      Re-encoding preserves the byte's position and corrects the checksum,
+//      so this fixture does NOT round trip byte for byte — block 1 byte 127
+//      changes from 9Eh to 33h. That is the encoder being right.
+export const LG_TV_SSCR2_HEX =
+  "00,FF,FF,FF,FF,FF,FF,00,1E,6D,CD,83,01,01,01,01," +
+  "01,23,01,03,80,A0,5A,78,0A,EE,91,A3,54,4C,99,26," +
+  "0F,50,54,A1,08,00,31,40,45,40,61,40,71,40,81,80," +
+  "D1,C0,01,01,01,01,08,E8,00,30,F2,70,5A,80,B0,58," +
+  "8A,00,40,84,63,00,00,1E,6F,C2,00,A0,A0,A0,55,50," +
+  "30,20,35,00,40,84,63,00,00,1E,00,00,00,FD,00,18," +
+  "90,1E,FF,86,00,0A,20,20,20,20,20,20,00,00,00,FC," +
+  "00,4C,47,20,54,56,20,53,53,43,52,32,0A,20,03,70," +
+  "F0,02,70,00,6B,00,00,00,00,00,00,00,00,00,00,00," +
+  "00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00," +
+  "00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00," +
+  "00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00," +
+  "00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00," +
+  "00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00," +
+  "00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00," +
+  "00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,9E," +
+  "02,03,74,F1,5D,61,60,76,75,66,65,DB,DA,10,1F,04," +
+  "13,05,14,03,02,12,20,21,22,15,5D,5E,5F,62,63,64," +
+  "3F,40,2C,09,57,07,15,07,50,57,07,01,67,04,07,6E," +
+  "03,0C,00,40,00,B8,44,24,00,80,01,02,03,04,6D,D8," +
+  "5D,C4,01,78,80,6B,41,28,90,D3,33,05,E2,00,CF,E3," +
+  "05,C0,00,E3,06,0D,01,E2,0F,FF,6D,1A,00,00,02,01," +
+  "28,90,00,00,00,00,00,00,EB,01,46,D0,00,48,02,96," +
+  "86,5C,6D,96,00,00,00,00,00,00,00,00,00,00,00,0F," +
+  "70,12,79,00,00,03,01,3C,9A,08,02,04,FF,0E,9F,00," +
+  "2F,80,1F,00,6F,08,99,00,02,00,04,00,08,EC,00,04," +
+  "FF,09,9F,00,2F,80,1F,00,9F,05,66,00,02,00,04,00," +
+  "59,87,00,04,7F,07,9F,00,2F,80,1F,00,37,04,4C,00," +
+  "02,00,04,00,00,00,00,00,00,00,00,00,00,00,00,00," +
+  "00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00," +
+  "00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00," +
+  "00,00,00,00,00,00,00,00,00,00,00,00,00,00,1C,90";
+
+export const LG_TV_SSCR2 = hexToUint8Array(LG_TV_SSCR2_HEX);

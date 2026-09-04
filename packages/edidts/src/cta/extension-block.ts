@@ -140,6 +140,12 @@ export interface AudioDataBlock extends CEADataBlock {
       bd24: boolean;
     };
     maxBitrate?: number; // For compressed formats, in kHz
+    /**
+     * Byte 3 verbatim, for the formats this model does not interpret
+     * (anything outside LPCM and the 2..8 compressed set). E-AC-3 and MAT
+     * both use it, and zeroing it on encode drops real capability.
+     */
+    formatSpecific?: number;
   }>;
 }
 
@@ -273,7 +279,15 @@ export interface CEADetailedTiming {
  */
 export interface BlockMapExtension extends BaseExtensionBlock {
   tag: 0xF0;
-  blockTags: number[]; // Up to 126 extension block tags
+  /**
+   * Positional: `blockTags[i]` is the tag of the extension block that follows
+   * this one at position i, and 00h means no block there. Always 126 entries.
+   *
+   * Compacting this to just the non-zero tags would lose which slot each one
+   * describes, and re-encoding would shuffle them up — a real LG panel ships a
+   * block map with a stray byte in a later slot, and compacting moved it.
+   */
+  blockTags: number[];
 }
 
 /**
@@ -464,6 +478,8 @@ export class ExtensionBlockParser {
         };
       } else if (format >= 2 && format <= 8) {
         descriptor.maxBitrate = data[i + 2] * 8;
+      } else {
+        descriptor.formatSpecific = data[i + 2];
       }
 
       descriptors.push(descriptor);
@@ -689,16 +705,10 @@ export class ExtensionBlockParser {
   }
 
   private static decodeBlockMap(data: Uint8Array, base: BaseExtensionBlock): BlockMapExtension {
-    const blockTags: number[] = [];
-    for (let i = 1; i < 127; i++) {
-      if (data[i] !== 0x00) {
-        blockTags.push(data[i]);
-      }
-    }
     return {
       ...base,
       tag: 0xF0,
-      blockTags,
+      blockTags: Array.from(data.slice(1, 127)),
     };
   }
 
@@ -766,6 +776,8 @@ export class ExtensionBlockParser {
         if (desc.bitDepths.bd24) byte3 |= 0x04;
       } else if (desc.maxBitrate !== undefined) {
         byte3 = Math.round(desc.maxBitrate / 8) & 0xFF;
+      } else if (desc.formatSpecific !== undefined) {
+        byte3 = desc.formatSpecific & 0xFF;
       }
       bytes.push(byte1, byte2, byte3);
     }
@@ -908,7 +920,7 @@ export class ExtensionBlockParser {
 
   private static encodeBlockMap(bytes: Uint8Array, blockMap: BlockMapExtension): void {
     for (let i = 0; i < blockMap.blockTags.length && i < 126; i++) {
-      bytes[1 + i] = blockMap.blockTags[i];
+      bytes[1 + i] = blockMap.blockTags[i] & 0xFF;
     }
   }
 
