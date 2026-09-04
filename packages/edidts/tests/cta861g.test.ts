@@ -262,16 +262,34 @@ describe('CTA-861-G Extended Data Blocks', () => {
 
   describe('YCbCr 4:2:0 Video Data Block (Extended Tag 14)', () => {
     it('should decode 4:2:0 capable VICs', () => {
-      // Extended tag 0x0E, followed by VICs with native flags
-      const data = new Uint8Array([0x0E, 0x80 | 97, 96, 95]); // Native 4K60, 4K50, 4K30
+      // Extended tag 0x0E, then SVDs. CTA-861-G 7.5.10 says these are encoded
+      // "in the same manner" as a regular Video Data Block, so 65..127 are
+      // 8-bit VICs and bit 7 is part of the value, not a native flag.
+      const data = new Uint8Array([0x0E, 97, 96, 95]); // 4K60, 4K50, 4K30
+
       const block = decodeExtendedDataBlock(data) as YCbCr420VideoDataBlock;
-      
+
       expect(block.extendedTag).toBe(0x0E);
       expect(block.vics.length).toBe(3);
-      expect(block.vics[0].vic).toBe(97);
-      expect(block.vics[0].native).toBe(true);
-      expect(block.vics[1].vic).toBe(96);
-      expect(block.vics[1].native).toBe(false);
+      expect(block.vics[0]).toEqual({ vic: 97, native: false });
+      expect(block.vics[1]).toEqual({ vic: 96, native: false });
+      expect(block.vics[2]).toEqual({ vic: 95, native: false });
+    });
+
+    it('should read the native flag only where the spec allows one', () => {
+      // This test previously used `0x80 | 97` and expected "VIC 97, native".
+      // That byte is E1h, which the spec reads as VIC 225 from the second
+      // 8-bit set — and VIC 97 has no native encoding at all, since only
+      // 1..64 map into the 129..192 native range.
+      const native = decodeExtendedDataBlock(
+        new Uint8Array([0x0E, 0x80 | 16]),
+      ) as YCbCr420VideoDataBlock;
+      expect(native.vics[0]).toEqual({ vic: 16, native: true });
+
+      const eightBit = decodeExtendedDataBlock(
+        new Uint8Array([0x0E, 0x80 | 97]),
+      ) as YCbCr420VideoDataBlock;
+      expect(eightBit.vics[0]).toEqual({ vic: 225, native: false });
     });
   });
 });

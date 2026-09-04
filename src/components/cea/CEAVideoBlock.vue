@@ -29,6 +29,12 @@ function getVicLabel(vic: number): string {
   return `${def.width}×${def.height}${def.interlaced ? 'i' : 'p'} @ ${def.refreshRate}Hz ${def.aspectRatio}`
 }
 
+/** Highest VIC that has a native encoding at all (CTA-861-G 7.5.1). */
+const MAX_NATIVE_VIC = 64
+
+const NATIVE_UNAVAILABLE =
+  'CTA-861-G 7.5.1 encodes "native" by moving a VIC into the 129..192 range, which only reaches VIC 64. There is no native encoding above that.'
+
 function toggleNative(index: number, native: boolean) {
   const updated = vics.value.map((v, i) => i === index ? { ...v, native } : v)
   emit('update', 'videoBlock.vics', updated)
@@ -64,9 +70,17 @@ const vicGroups = computed(() => groupAvailableVics(vics.value.map(v => v.vic)))
             <span class="text-xs truncate">{{ getVicLabel(svd.vic) }}</span>
           </div>
           <div class="flex items-center gap-3 shrink-0">
-            <label class="flex items-center gap-1.5 text-xs">
+            <label
+              class="flex items-center gap-1.5 text-xs"
+              :class="svd.vic > MAX_NATIVE_VIC ? 'opacity-50' : ''"
+              :title="svd.vic > MAX_NATIVE_VIC ? NATIVE_UNAVAILABLE : ''"
+            >
               <span class="text-muted-foreground">Native</span>
-              <Switch :model-value="svd.native" @update:model-value="(v: boolean) => toggleNative(i, v)" />
+              <Switch
+                :model-value="svd.native"
+                :disabled="svd.vic > MAX_NATIVE_VIC"
+                @update:model-value="(v: boolean) => toggleNative(i, v)"
+              />
             </label>
             <Button
               variant="ghost"

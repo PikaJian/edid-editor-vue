@@ -28,6 +28,7 @@ import {
   type VideoTimingBlockDetailedTiming as VTBDetailedTiming,
 } from '../common/video-timing-block';
 import { checksum8 } from '../common/checksum';
+import { decodeShortVideoDescriptor, encodeShortVideoDescriptor } from './svd';
 import {
   decodeDisplayIdSection,
   encodeDisplayIdSection,
@@ -475,11 +476,7 @@ export class ExtensionBlockParser {
     const vics: VideoDataBlock['vics'] = [];
     
     for (let i = 0; i < data.length; i++) {
-      const byte = data[i];
-      vics.push({
-        vic: byte & 0x7F,
-        native: (byte & 0x80) !== 0,
-      });
+      vics.push(decodeShortVideoDescriptor(data[i]));
     }
 
     return { tag: 0x02, data, vics };
@@ -778,7 +775,7 @@ export class ExtensionBlockParser {
   private static encodeVideoDataBlock(block: VideoDataBlock): Uint8Array {
     const bytes = new Uint8Array(block.vics.length);
     for (let i = 0; i < block.vics.length; i++) {
-      bytes[i] = (block.vics[i].native ? 0x80 : 0) | (block.vics[i].vic & 0x7F);
+      bytes[i] = encodeShortVideoDescriptor(block.vics[i]);
     }
     return bytes;
   }

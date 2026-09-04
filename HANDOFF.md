@@ -16,7 +16,7 @@ Three features are documented, in the order their sections appear:
 |---|---|
 | Branch | `main` only — every feature branch described here is merged and deleted. |
 | PR | [#1](https://github.com/PikaJian/edid-editor-vue/pull/1) — **merged** as `763168a`; the feature commit is `2832563`. [#2](https://github.com/PikaJian/edid-editor-vue/pull/2) — **merged** as `53a6fa2`; Windows extension blocks via WMI, commits `871f0e0`/`f0f0af9`/`ca88bf5` |
-| Tests | 184 passing (`npm test`), plus 13 Rust (`cd src-tauri && cargo test --lib`, 1 more `#[ignore]`d) |
+| Tests | 194 passing (`npm test`), plus 13 Rust (`cd src-tauri && cargo test --lib`, 1 more `#[ignore]`d) |
 | Release | [v0.1.4](https://github.com/PikaJian/edid-editor-vue/releases/tag/v0.1.4) is current — four EDID correctness fixes, three of which stopped saving from silently rewriting a valid EDID (`7cd272b`, `95ee323`, `9cc731e`, `db4260c`). Older releases are superseded and say so: v0.1.0's Windows build lists every monitor ever attached (`37cb884`), v0.1.1's returns only base blocks (#2), and v0.1.2/v0.1.3 both mis-report Display Range Limits and HDMI 2.1 capability, and corrupt those fields on save. |
 | Untracked | `edid.bin` in the repo root — a real MSI MAG 272URDF dump used while debugging. Its bytes are already committed as a fixture, so the file itself is deliberately not tracked. |
 
@@ -83,6 +83,14 @@ The format traps that cost time (minus-one encoding, per-type pixel clock units,
 - `byteRanges.ts` — per-block hex highlighting, walking the encoded bytes.
 - `App.vue` — an amber warning banner when `extensionCountMismatch` is set, worded to name the HF-EEODB when one is present.
 - `cta/cta-extended-blocks.ts` — HF-EEODB (`0x78`) decode/encode; `CEAOverview.vue` shows the count.
+
+## 3d. SVD 8-bit VICs — the bug a round-trip test cannot see
+
+`cta/svd.ts` now owns the CTA-861-G §7.5.1 range split; the Video Data Block and Y420VDB both call it. Before, both masked with `7Fh`, so every VIC in `193–253` — the 8K and 10K formats — decoded as a low VIC with the native flag set.
+
+**This one is worth understanding as a category.** `C2h` decoded to `{vic: 66, native: true}` and encoded back to `0x80 | 66` = `C2h`: byte-for-byte perfect, round-trip green, meaning wrong. No amount of round-trip testing finds it. The existing `cta861g.test.ts` case was worse than useless here — it built `0x80 | 97` and asserted "VIC 97, native", encoding the bug as the expected answer. It now asserts what the spec says (`E1h` is VIC 225, and VIC 97 has no native encoding at all).
+
+The open item from issue #5 still stands: this repo needs a body of "known EDID → expected semantic field values" assertions, not just round-trip invariants.
 
 ## 3c. CTA block round trip — the same shape again, three more times
 

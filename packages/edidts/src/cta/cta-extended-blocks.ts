@@ -6,6 +6,7 @@
  */
 
 import type { CEADataBlock } from './extension-block';
+import { decodeShortVideoDescriptor, encodeShortVideoDescriptor } from './svd';
 
 export type ExtendedTagCode =
   | 0x00  // Video Capability Data Block
@@ -379,11 +380,7 @@ function decodeYCbCr420VideoBlock(base: ExtendedDataBlock, payload: Uint8Array):
   const vics: YCbCr420VideoDataBlock['vics'] = [];
 
   for (let i = 0; i < payload.length; i++) {
-    const byte = payload[i];
-    vics.push({
-      vic: byte & 0x7F,
-      native: (byte & 0x80) !== 0,
-    });
+    vics.push(decodeShortVideoDescriptor(payload[i]));
   }
 
   return {
@@ -616,7 +613,7 @@ function encodeHDRStaticMetadataBlock(block: HDRStaticMetadataDataBlock): Uint8A
 function encodeYCbCr420VideoBlock(block: YCbCr420VideoDataBlock): Uint8Array {
   const bytes = [0x0E];
   for (const vic of block.vics) {
-    bytes.push((vic.native ? 0x80 : 0) | (vic.vic & 0x7F));
+    bytes.push(encodeShortVideoDescriptor(vic));
   }
   return new Uint8Array(bytes);
 }
