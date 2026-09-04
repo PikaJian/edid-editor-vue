@@ -460,10 +460,13 @@ export class EDID {
     edid[127] = checksum8(edid, 127);
     this.checksum = edid[127];
 
-    // Encode extension blocks
+    // Encode extension blocks. Encoding always writes a correct checksum, so
+    // a block that arrived with a bad one is no longer bad once re-encoded —
+    // keep the flag describing the bytes this call just produced.
     for (let i = 0; i < this._extensionBlocks.length; i++) {
       const extBytes = ExtensionBlockParser.encode(this._extensionBlocks[i]);
       edid.set(extBytes, (i + 1) * 128);
+      this._extensionBlocks[i].isChecksumValid = true;
     }
 
     // Update validity
@@ -549,6 +552,18 @@ export class EDID {
    */
   get ceaExtension(): CEAExtensionBlock | null {
     return this.extensionBlocks.find(b => b.tag === 0x02) as CEAExtensionBlock ?? null;
+  }
+
+  /**
+   * Positions of the extension blocks whose checksum does not check out, as
+   * EDID block numbers (the base block is 0, so the first extension is 1).
+   *
+   * `isValid` covers the base block only; this covers the rest.
+   */
+  get extensionsWithInvalidChecksum(): number[] {
+    return this._extensionBlocks
+      .map((block, index) => (block.isChecksumValid ? -1 : index + 1))
+      .filter(blockNumber => blockNumber !== -1);
   }
 
   /**

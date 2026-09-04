@@ -87,4 +87,28 @@ describe('LG TV SSCR2', () => {
     const blockOne = encoded.slice(128, 256)
     expect(blockOne.reduce((sum, b) => sum + b, 0) & 0xff).toBe(0)
   })
+
+  it('flags the block whose checksum does not check out', () => {
+    const e = edid()
+
+    // isValid covers the base block, which is fine here — the damage is in
+    // block 1, and without a per-extension flag nothing surfaces it.
+    expect(e.isValid).toBe(true)
+    expect(e.extensionsWithInvalidChecksum).toEqual([1])
+
+    expect(e.extensionBlocks[0].isChecksumValid).toBe(false)
+    expect(e.extensionBlocks[1].isChecksumValid).toBe(true)
+    expect(e.extensionBlocks[2].isChecksumValid).toBe(true)
+  })
+
+  it('clears the flag once the block is re-encoded', () => {
+    const e = edid()
+    expect(e.extensionsWithInvalidChecksum).toEqual([1])
+
+    e.encode()
+
+    // The flag describes the current bytes, which now carry a correct
+    // checksum — otherwise the warning would contradict the hex view.
+    expect(e.extensionsWithInvalidChecksum).toEqual([])
+  })
 })

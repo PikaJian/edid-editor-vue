@@ -36,4 +36,6 @@ export type EDIDViewModel = Pick<
     'extensionCountMismatch'
   |
     'hfEeodbCount'
+  |
+    'extensionsWithInvalidChecksum'
 >

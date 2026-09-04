@@ -250,6 +250,9 @@ function addCEAExtension() {
     tag: 0x02,
     revision: 3,
     checksum: 0,
+    // encode() computes the real checksum; a fresh block is consistent by
+    // construction.
+    isChecksumValid: true,
     data: new Uint8Array(125),
     dtdOffset: 4,
     underscan: false,
@@ -587,6 +590,16 @@ function updateCEA(field: string, value: unknown) {
             v-if="edidRaw?.hfEeodbCount != null"
           > in its HF-EEODB</template><template v-else> at byte 126</template>
           but contains {{ edidRef.extensionBlocks.length }}. All blocks present are shown.
+        </div>
+
+        <div
+          v-if="edidRef?.extensionsWithInvalidChecksum.length"
+          class="mb-4 p-4 bg-amber-500/10 border border-amber-500 rounded-lg text-amber-600 dark:text-amber-400 text-sm"
+        >
+          Checksum does not check out on extension
+          {{ edidRef.extensionsWithInvalidChecksum.length > 1 ? 'blocks' : 'block' }}
+          {{ edidRef.extensionsWithInvalidChecksum.join(', ') }}. The block is still decoded;
+          saving writes a corrected checksum.
         </div>
 
         <div v-if="!isLoaded" class="max-w-xl mx-auto">

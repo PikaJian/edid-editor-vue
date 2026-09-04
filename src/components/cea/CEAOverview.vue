@@ -74,6 +74,13 @@ const switchRowClass = 'flex items-center justify-between gap-2 rounded-md borde
             <span class="text-muted-foreground">Native Formats</span>
             <span class="font-mono">{{ cea.nativeFormats }}</span>
           </div>
+          <div :class="switchRowClass">
+            <span class="text-muted-foreground">Block checksum</span>
+            <span class="font-mono" :class="cea.isChecksumValid ? 'text-emerald-500' : 'text-destructive'">
+              0x{{ cea.checksum.toString(16).toUpperCase().padStart(2, '0') }}
+              {{ cea.isChecksumValid ? '(valid)' : '(invalid)' }}
+            </span>
+          </div>
         </div>
         <div v-if="hfEeodb" :class="switchRowClass">
           <span class="text-muted-foreground">

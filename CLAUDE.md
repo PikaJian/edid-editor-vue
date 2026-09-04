@@ -51,6 +51,8 @@ Byte-oriented and framework-free. Decoders take a `Uint8Array`; encoders return 
 
 `EDID.decode()` decodes every complete 128-byte block present in the buffer rather than trusting byte 126.
 
+**`EDID.isValid` covers the base block only.** Each extension carries its own checksum in its byte 127, exposed as `BaseExtensionBlock.isChecksumValid` and summarised by `EDID.extensionsWithInvalidChecksum` (block numbers, base block being 0). Encoding always writes a correct checksum, so `encode()` sets those flags true — they describe the bytes the model currently holds, not the file it was loaded from, which keeps them consistent with what the hex view shows.
+
 **Byte 126 is often 1 on a perfectly valid multi-extension EDID, and that is not a bug to "fix".** HDMI 2.1 §10.3.6 defines the *HF-EEODB* — the HDMI Forum EDID Extension Override Data Block, extended tag `0x78`, which must be the first data block of the first CTA extension. An EDID using it pins byte 126 at 1 so that sources reading only two blocks still see something consistent, and states the real count in the EEODB instead. `getHfEeodbCount()` reads it; when present it is authoritative, `EDID.hfEeodbCount` exposes it, and **`encode()` must keep byte 126 at 1** — writing the real count there breaks conformance. `EDID.extensionCountMismatch` is only for a discrepancy the EEODB does *not* explain.
 
 ### `src/` — the Vue app

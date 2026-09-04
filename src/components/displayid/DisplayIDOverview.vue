@@ -14,6 +14,8 @@ const sections = computed(() =>
     index,
     error: extension.sectionError,
     section: extension.section,
+    blockChecksum: extension.checksum,
+    blockChecksumValid: extension.isChecksumValid,
     blocks: (extension.section?.blocks ?? []).map(block => ({
       tag: block.tag,
       name: displayIdBlockName(block.tag, extension.section?.version ?? 2),
@@ -53,7 +55,16 @@ function useCaseLabel(value: number): string {
             <DisplayIDField label="Bytes in section" :value="entry.section.bytesInSection" />
             <DisplayIDField label="Extension count" :value="entry.section.extensionCount" />
             <DisplayIDField label="Fill bytes" :value="entry.section.fillBytes" />
-            <DisplayIDField label="Checksum">
+            <DisplayIDField label="Extension block checksum">
+              <span
+                class="font-mono"
+                :class="entry.blockChecksumValid ? 'text-emerald-500' : 'text-destructive'"
+              >
+                0x{{ entry.blockChecksum.toString(16).toUpperCase().padStart(2, '0') }}
+                {{ entry.blockChecksumValid ? '(valid)' : '(invalid)' }}
+              </span>
+            </DisplayIDField>
+            <DisplayIDField label="Section checksum">
               <span
                 class="font-mono"
                 :class="entry.section.isChecksumValid ? 'text-emerald-500' : 'text-destructive'"

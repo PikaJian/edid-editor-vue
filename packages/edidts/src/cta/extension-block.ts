@@ -27,7 +27,7 @@ import {
   type VideoTimingBlock as VTBExtensionBlock,
   type VideoTimingBlockDetailedTiming as VTBDetailedTiming,
 } from '../common/video-timing-block';
-import { checksum8 } from '../common/checksum';
+import { checksum8, isChecksum8Valid } from '../common/checksum';
 import { decodeShortVideoDescriptor, encodeShortVideoDescriptor } from './svd';
 import {
   decodeDisplayIdSection,
@@ -88,6 +88,15 @@ export interface BaseExtensionBlock {
   tag: ExtensionTag;
   revision: number;
   checksum: number;
+  /**
+   * Whether byte 127 checks out over this block's 128 bytes, as decoded.
+   *
+   * `EDID.isValid` covers the base block only, so without this a malformed
+   * extension is invisible — a real LG panel ships a Block Map whose stored
+   * checksum belongs to different content. Re-encoding always writes a correct
+   * checksum, so this becomes true once the block is encoded.
+   */
+  isChecksumValid: boolean;
   data: Uint8Array;
 }
 
@@ -327,6 +336,7 @@ export class ExtensionBlockParser {
       tag,
       revision,
       checksum,
+      isChecksumValid: isChecksum8Valid(data.slice(0, 128)),
       data: data.slice(2, 127),
     };
 

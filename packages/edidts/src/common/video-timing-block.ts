@@ -10,6 +10,8 @@ export interface VideoTimingBlockBase {
   tag: 0x10;
   revision: number;
   checksum: number;
+  /** Matches BaseExtensionBlock: whether byte 127 checks out as decoded. */
+  isChecksumValid: boolean;
   data: Uint8Array;
 }
 
