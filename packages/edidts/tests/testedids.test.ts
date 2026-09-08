@@ -5,6 +5,25 @@ import { loadEdidFixtures } from './fixture-loader'
 
 const edidFixtures = await loadEdidFixtures()
 
+/**
+ * Byte offsets a fixture is expected to differ at after a decode/encode cycle,
+ * keyed by fixture name. Anything not listed here must round trip exactly.
+ *
+ * An entry is a claim that the *input* is wrong and the encoder is right, so
+ * each one needs a reason. A difference that turns up without one is a bug:
+ * every silent-rewrite defect this package has had — the HF-EEODB extension
+ * count, the Display Range Limits offsets, the CTA data blocks — would have
+ * shown up here as an unexplained offset.
+ */
+const EXPECTED_ENCODE_DIFFERENCES: Record<string, number[]> = {
+  // Byte 255 is the Block Map extension's checksum. This panel ships a stray
+  // 6Bh in a slot no block uses, and stores the checksum that byte's absence
+  // would produce, so the block as shipped does not add up. Re-encoding keeps
+  // the byte where it is and writes the checksum the content actually needs.
+  // See tests/lg-tv-sscr2.test.ts, which pins both halves of that.
+  LG_TV_SSCR2: [255],
+}
+
 describe('Test EDID compatibility', () => {
   it.each(edidFixtures)('should parse $source/$name without throwing', ({ data }) => {
     expect(() => {
@@ -26,12 +45,22 @@ describe('Test EDID compatibility', () => {
     expect(edid.isValid).toBe(true)
   })
 
-  it.each(edidFixtures)('should round-trip encode/decode $source/$name', ({ data }) => {
+  it.each(edidFixtures)('should re-encode $source/$name byte for byte', ({ name, data }) => {
+    const encoded = new EDID(data).encode()
+
+    const differing: number[] = []
+    for (let i = 0; i < Math.max(data.length, encoded.length); i += 1) {
+      if (encoded[i] !== data[i]) differing.push(i)
+    }
+
+    expect(encoded.length).toBe(data.length)
+    expect(differing).toEqual(EXPECTED_ENCODE_DIFFERENCES[name] ?? [])
+  })
+
+  it.each(edidFixtures)('should still decode to the same values after re-encoding $source/$name', ({ data }) => {
     const original = new EDID(data)
-    
-    const encoded = original.encode()
-    const decoded = new EDID(encoded)
-    
+    const decoded = new EDID(original.encode())
+
     expect(decoded.header.manufacturerId).toBe(original.header.manufacturerId)
     expect(decoded.header.productCode).toBe(original.header.productCode)
     expect(decoded.isValid).toBe(true)
