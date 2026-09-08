@@ -1,22 +1,82 @@
 # edid-editor
 
-Client side EDID Viewer and editor
+A client-side viewer and editor for EDID — the block of bytes a monitor hands
+the computer to describe itself: who made it, how big it is, and every video
+mode it will accept. It decodes the base block, CEA-861 extensions and
+DisplayID extensions down to individual bit fields, shows the bytes each field
+occupies, and lets you change most of them and save the result.
+
+Everything runs in the browser; nothing is uploaded. The desktop build adds one
+thing the browser cannot do: reading the EDID straight off a monitor that is
+plugged in.
 
 > This repository is a fork of [thyge/edid-editor](https://github.com/thyge/edid-editor)
 > (MIT), which is where the Vue app and the `edidts` package come from — its history and
 > copyright are intact, see [LICENSE](LICENSE). Added here: a Tauri desktop build that
 > reads EDIDs off attached monitors (`src-tauri/`), and DisplayID extension block parsing.
+>
+> The project is a continuation of [goedid](https://github.com/thyge/goedid).
 
-The project is a continuation of [goedid](https://github.com/thyge/goedid)
+## Demo
 
-The project is implimented as a vue app but all EDID decoding and editing is contained in the [edidts](packages/edidts) directory.
-##  Goals:
-* Being able to visualise EDID, CEA and DisplayID
-* Being able to edit key aspects of EDID CEA and DisplayID
+Every panel is backed by the raw bytes, and the hex view on the right
+highlights whichever ones the open panel describes.
 
-### TODOS:
-* Create CVT generator for adding Detailed Timing Descriptions to EDID and CEA extension
-* Create CEA Block generator for adding CEA blocks to CEA extension
+![The CEA-861 video data block of an LG TV, with each short video descriptor resolved to a resolution and refresh rate, and the corresponding bytes highlighted in the hex view](screenshots/cea-video.png)
+
+Above is a real LG panel. Two of its video codes — `DB` and `DA` — are in the
+8-bit range CTA-861-G added for the 8K and Cinema 4K formats, so they decode to
+4096×2160 at 120 and 100 Hz rather than to a low code with a "native" flag. The
+amber banner is the editor reporting that this panel ships an extension block
+whose checksum does not add up; the block is still decoded, and saving writes a
+correct one.
+
+DisplayID extensions are decoded too, including the v1.x structure that a lot of
+shipping monitors actually use:
+
+![The DisplayID extension panel, showing structure version 1.2, both the extension block and section checksums, and a Type I detailed timing data block](screenshots/displayid.png)
+
+## What it does
+
+- **Reads** the base 128-byte block, CEA-861 extension blocks, and DisplayID
+  extension blocks (both Structure v2.x and the v1.x tag space).
+- **Edits** most of the base block and the CEA extension — display parameters,
+  established and standard timings, detailed timing descriptors, and the CEA
+  data blocks — recomputing checksums as you go.
+- **Shows the bytes.** Selecting a panel highlights the range it covers, so a
+  field and its encoding are visible at once.
+- **Flags what is wrong** rather than hiding it: a bad checksum on any block, or
+  an extension count that nothing explains.
+- **Reads attached monitors** in the desktop build (macOS, Windows; the Linux
+  path is written but untested).
+
+Decoding follows the published specifications rather than convention, and the
+parser is tested against real monitor dumps: the byte layouts are commented with
+the section and table numbers they come from, and encoding a decoded EDID has to
+reproduce the original bytes exactly.
+
+All of the decoding and encoding lives in [`packages/edidts`](packages/edidts),
+which is framework-free and usable on its own; the Vue app only renders it.
+
+## Goals
+
+- Visualise EDID, CEA and DisplayID accurately enough to trust for debugging
+  real hardware, not just to render something plausible.
+- Edit the parts of an EDID that are worth editing, without silently rewriting
+  the parts that are not being edited.
+
+### Not done yet
+
+- **DisplayID is read-only.** The encoders exist and round-trip, so the model
+  supports editing; the UI does not expose it.
+- **The CVT generator is not wired up.** `packages/edidts` can generate CVT
+  timings (`calculateCVTTiming`, `generateCVTDetailedTiming`), but nothing in
+  the app calls them — adding a detailed timing still means entering the
+  numbers.
+- **DisplayID v1.x is only partly decoded.** The Type I detailed timing block is
+  read field by field; the other legacy tags keep their raw payload, because the
+  v1.3 specification is not available here and guessing a layout would be worse
+  than showing bytes.
 
 ## Building
 
