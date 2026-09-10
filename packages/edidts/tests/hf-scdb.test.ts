@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { decodeExtendedDataBlock, encodeExtendedDataBlock } from '../src/cta/cta-extended-blocks'
 import type { HfScdbDataBlock } from '../src/cta/cta-extended-blocks'
 import { decodeSinkCapabilityDataStructure } from '../src/cta/extension-block'
+import type { SinkCapabilityDataStructure } from '../src/cta/extension-block'
 
 /**
  * HDMI Forum Sink Capability Data Block, HDMI 2.1b section 10.3.2.2.
@@ -80,5 +81,75 @@ describe('HF-SCDB (extended tag 79h)', () => {
     const block = decodeExtendedDataBlock(withReserved) as HfScdbDataBlock
 
     expect(Array.from(encodeExtendedDataBlock(block))).toEqual(Array.from(withReserved))
+  })
+
+  it('maps each PB5 bit to its own field', () => {
+    // No fixture sets these, so a swap between two of them is invisible to
+    // any test driven by real data — FAPA and FVA were transposed for exactly
+    // that reason. One bit at a time, per HDMI 2.1b Table 10-7.
+    const fields: [number, keyof SinkCapabilityDataStructure][] = [
+      [0x80, 'fapaEndExtended'],
+      [0x40, 'qms'],
+      [0x20, 'mDelta'],
+      [0x10, 'cinemaVrr'],
+      [0x08, 'negMvrr'],
+      [0x04, 'fva'],
+      [0x02, 'allm'],
+      [0x01, 'fapaStartLocation'],
+    ]
+
+    for (const [bit, field] of fields) {
+      const scds = decodeSinkCapabilityDataStructure(
+        new Uint8Array([0x01, 0x78, 0x00, 0x00, bit]),
+      )
+
+      for (const [, other] of fields) {
+        expect(scds[other], `PB5 ${bit.toString(2)} -> ${other}`).toBe(other === field)
+      }
+    }
+  })
+
+  it('maps each PB3 bit to its own field', () => {
+    const fields: [number, keyof SinkCapabilityDataStructure][] = [
+      [0x80, 'scdc'],
+      [0x40, 'rr'],
+      [0x20, 'cableStatus'],
+      [0x10, 'ccbpci'],
+      [0x08, 'lte340McscScramble'],
+      [0x04, 'independentView'],
+      [0x02, 'dualView'],
+      [0x01, 'osd3d'],
+    ]
+
+    for (const [bit, field] of fields) {
+      const scds = decodeSinkCapabilityDataStructure(new Uint8Array([0x01, 0x78, bit, 0x00]))
+      for (const [, other] of fields) {
+        expect(scds[other], `PB3 ${bit.toString(2)} -> ${other}`).toBe(other === field)
+      }
+    }
+  })
+
+  it('splits PB4 into the FRL rate and the 4:2:0 colour depths', () => {
+    const depths: [number, keyof SinkCapabilityDataStructure][] = [
+      [0x08, 'uhdVic'],
+      [0x04, 'dc48bit420'],
+      [0x02, 'dc36bit420'],
+      [0x01, 'dc30bit420'],
+    ]
+
+    for (const [bit, field] of depths) {
+      const scds = decodeSinkCapabilityDataStructure(new Uint8Array([0x01, 0x78, 0x00, bit]))
+      expect(scds.maxFrlRate).toBe(0)
+      for (const [, other] of depths) {
+        expect(scds[other], `PB4 ${bit.toString(2)} -> ${other}`).toBe(other === field)
+      }
+    }
+
+    // Bits 7:4 are the rate, and must not leak into the depth flags.
+    const rate = decodeSinkCapabilityDataStructure(new Uint8Array([0x01, 0x78, 0x00, 0x60]))
+    expect(rate.maxFrlRate).toBe(6)
+    expect([rate.uhdVic, rate.dc48bit420, rate.dc36bit420, rate.dc30bit420]).toEqual([
+      false, false, false, false,
+    ])
   })
 })

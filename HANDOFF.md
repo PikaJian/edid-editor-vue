@@ -16,7 +16,7 @@ Three features are documented, in the order their sections appear:
 |---|---|
 | Branch | `main` only — every feature branch described here is merged and deleted. |
 | PR | [#1](https://github.com/PikaJian/edid-editor-vue/pull/1) — **merged** as `763168a`; the feature commit is `2832563`. [#2](https://github.com/PikaJian/edid-editor-vue/pull/2) — **merged** as `53a6fa2`; Windows extension blocks via WMI, commits `871f0e0`/`f0f0af9`/`ca88bf5` |
-| Tests | 230 passing (`npm test`), plus 13 Rust (`cd src-tauri && cargo test --lib`, 1 more `#[ignore]`d) |
+| Tests | 252 passing (`npm test`), plus 13 Rust (`cd src-tauri && cargo test --lib`, 1 more `#[ignore]`d) |
 | Release | [v0.1.5](https://github.com/PikaJian/edid-editor-vue/releases/tag/v0.1.5) is current — the rest of the EDID correctness work from [#5](https://github.com/PikaJian/edid-editor-vue/issues/5) (`b53606c`, `8c31a63`, `d0db477`, `0ee0e49`). v0.1.4 carried the first four of those fixes. Everything before it is superseded and says so: v0.1.0's Windows build lists every monitor ever attached (`37cb884`), v0.1.1's returns only base blocks (#2), and v0.1.2/v0.1.3 mis-report Display Range Limits and HDMI 2.1 capability, and corrupt those fields on save. |
 | Untracked | `edid.bin` (MSI MAG 272URDF) and `GSM83CD_0.bin` (LG TV SSCR2) in the repo root. Both are committed as hex fixtures, so the binaries themselves are deliberately not tracked. |
 
@@ -91,7 +91,13 @@ All six items from [#5](https://github.com/PikaJian/edid-editor-vue/issues/5) ar
 - **CVT pixel clock precision.** Byte 12 bits 7:2 back off from byte 9 in 0.25 MHz steps (E-EDID A.2 Table 3.28), so a CVT descriptor's maximum pixel clock was overstated by up to 15.75 MHz and encoding cleared the field. See **CLAUDE.md → Base EDID specifics**.
 - **HF-SCDB (`79h`).** The same Sink Capability Data Structure as the HF-VSDB, in a different container. Decoding is now shared between the two, which is the arrangement that should have existed when the VSDB bit-mapping bugs were fixed — the SCDS logic living in one place is what makes "parse either form" free.
 
-That issue's closing note became [#6](https://github.com/PikaJian/edid-editor-vue/issues/6). Its first item is done: `testedids.test.ts`'s round-trip case used to compare two header fields, so a block could lose its whole payload and still pass — which is what the CTA extension was doing. It now compares all bytes, with `EXPECTED_ENCODE_DIFFERENCES` listing the offsets a fixture may legitimately differ at and why. Verified by re-introducing two of the fixed bugs and watching it fail on each. The remaining items — per-fixture semantic value tables, coverage for byte ranges no fixture reaches, more real dumps — are still open.
+That issue's closing note became [#6](https://github.com/PikaJian/edid-editor-vue/issues/6). Items 1 and 2 are done.
+
+`tests/fixture-semantics.test.ts` is the semantic table: what each fixture means, asserted field by field, with the values hand-derived from the bytes and the specs in a separate implementation rather than captured from this package's output. Several assertions lean on an independent fact — the MSI's 60x34 cm screen is a 27.1" diagonal, matching the "272" in its model number; its VRR window equals its Display Range Limits exactly; the LG's 4K 60 Hz detailed timing uses the same 594 MHz clock the CTA table gives VIC 97. A mirror-image bug cannot fake those.
+
+Injecting four of the bugs fixed in #5 showed the table catching three. The fourth, the PB5 FAPA/FVA transposition, was invisible because no fixture sets those bits — so `hf-scdb.test.ts` gained one-bit-at-a-time tests for PB3, PB4 and PB5 that assert each bit lands in its own field. With those, all four are caught.
+
+Item 1: `testedids.test.ts`'s round-trip case used to compare two header fields, so a block could lose its whole payload and still pass — which is what the CTA extension was doing. It now compares all bytes, with `EXPECTED_ENCODE_DIFFERENCES` listing the offsets a fixture may legitimately differ at and why. Verified by re-introducing two of the fixed bugs and watching it fail on each. The remaining items — per-fixture semantic value tables, coverage for byte ranges no fixture reaches, more real dumps — are still open.
 
 ## 3d. SVD 8-bit VICs — the bug a round-trip test cannot see
 

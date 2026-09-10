@@ -2,7 +2,14 @@
 
 import { hexToUint8Array } from "./fixture-utils";
 
-// Appendix A Example 1 — LCD Desktop IT Display (256 bytes, base EDID + CEA extension)
+// A 256-byte dump (base EDID + CEA extension) from a Panasonic ET-MDNHM10.
+//
+// The name is a misnomer inherited from the goedid samples and kept only
+// because tests reference it: VESA E-EDID A.2 Appendix A Example 1 is a
+// 128-byte base block for an "ABC LCD21" by "ABC", dated 2007, and the
+// spec documents what it should decode to. This is not that EDID — it
+// decodes to manufacturer MEI, product ET-MDNHM10, 2015 — so do not reach
+// for the spec's appendix expecting it to describe these bytes.
 export const APPENDIX_A_EXAMPLE_1_HEX =
   "00,FF,FF,FF,FF,FF,FF,00,34,A9,1C,D1,01,01,01,01," +
   "00,19,01,03,80,DD,7D,78,0A,06,12,AF,51,4E,AD,24," +
